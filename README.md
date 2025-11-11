@@ -10,6 +10,8 @@ understanding of habitat selection. Preprint available on bioRxiv.
 
 All the data is available in the folder `Data`
 
+## Literature review
+
 The literature review is available in the file `Literature_review.xlsx` 
 found in the subfolder `0_Review`. 
 
