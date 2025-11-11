@@ -37,9 +37,14 @@ Specifically it contains the columns:
     - ManagementConservationInference: whether or not conservation or management inference was made based on the results
     - Additional info on inference made: additional information on the statements
     - Species common: common species name
-    - Species scientific: latin species name
+    - Species scientific: Latin species name
     
 2. Full questions: contains the relationship between the column short form name and the full question associated with that column.
 
 3. Keywords to use: contains a list of keywords to use from some of the columns (to help consistency).
+
+# Code
+
+The code to reproduce the figures of the literature review is available in `0_review.Rmd`. 
+A compiled version is also available in `0_review.html`.
 
