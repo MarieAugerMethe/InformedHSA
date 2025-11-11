@@ -1,0 +1,200 @@
+---
+title: "Litterature review"
+author: "Marie Auger-Méthé"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Goals
+
+1. Identify the proportion of recent papers that use habitat selection analysis to inform conservation and management
+2. Identify the proportion of recent papers that include characteristics of individual, with a focus on health and fitness proxies. 
+
+# General set up
+
+## Load packages
+
+```{r packages, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(here)
+library(ggpubr) # To put plots side-by-side
+library(grafify) # For color-blind friendly palette
+```
+
+
+# Visualizing the results
+
+## Loading the litterature review data
+
+```{r loading_data}
+review <- read_excel(path=file.path(here("Data/0_Review"),
+                                  "Litterature_review.xlsx"))
+head(review)
+```
+
+We want to extract only the papers that were kept after screening.
+
+```{r screening}
+review <- review %>% 
+  filter(TitleExclude == "N"  & AbstractExclude == "N" & FullTextExclude == "N")
+head(review)
+```
+
+Look at number of papers kept.
+
+```{r number_papers}
+n <- nrow(review)
+n
+```
+
+## Use for conservation and management inference
+
+Look at the potential answers to the question: Is conservation or management inference made based on the results?
+
+```{r conservation}
+review %>% select("ManagementConservationInference") %>% unique()
+```
+
+Look at proportion of the papers with habitat selection analysis that make conservation or management statements based on the results.
+
+```{r prop_cons}
+cons_yes <- review %>% filter(ManagementConservationInference == "Yes") %>% nrow()
+cons_yes
+cons_yes/n
+```
+
+How many of the papers that do not make conservation and management statements based on the results are methodological?
+
+```{r prop_cons_method}
+review %>% filter(ManagementConservationInference == "No") %>% 
+  select("PrimaryFocus") %>% table()
+```
+
+Let's plot these results.
+
+```{r plot_cons}
+cons_plot <- ggplot() + 
+  geom_bar(data = review, aes(x=as.factor(ManagementConservationInference), 
+                              fill = as.factor(PrimaryFocus))) +
+  theme_classic() +
+  xlab("Conservation/management statement made based on results") + 
+  ylab("Number of articles") +
+  guides(fill = guide_legend(title="Primary focus")) +
+  scale_fill_grafify(palette = "muted") +
+  theme(axis.title = element_text(size = rel(1)),
+        axis.text = element_text(size = rel(0.9)),
+        axis.title.x = element_text(margin = margin(t = 5)),
+        axis.title.y = element_text(margin = margin(r = 5)),
+        legend.title = element_text(size = rel(1)),
+        legend.text = element_text(size = rel(0.9)),
+        legend.margin = margin(0, 0, 0, 0),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+        axis.line = element_line(colour = 'black', linewidth = 0.1),
+        axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+        plot.margin = unit(c(1.5, 0, 0, 1), 'lines'))
+cons_plot
+```
+
+## Inclusion of individual characteristics
+
+Let's first look at fitness/health proxy.
+
+```{r fitness_char}
+review %>% select(IncludeCharacteristicsOfFitnessHealthSpecific) %>% table()
+```
+
+Let's change the value of `No, but survival analysis` to something more understandable.
+
+```{r survial}
+review <- review %>% 
+  mutate(IncludeCharacteristicsOfFitnessHealthSpecific = 
+           recode(IncludeCharacteristicsOfFitnessHealthSpecific,
+                  "No, but survival analysis" = "No, but include survival analysis"))
+review %>% select(IncludeCharacteristicsOfFitnessHealthSpecific) %>% table()
+```
+
+```{r fitness_details}
+fit_yes <- review %>% filter(IncludeCharacteristicsOfFitnessHealthSpecific == "Yes") %>% 
+  select(FitnessHealthCharacteristic, MethodCharacteristic, CommentMethodCharacteristic)
+nrow(fit_yes)/n
+fit_yes
+```
+
+
+```{r fitness_but_details}
+review %>% filter(IncludeCharacteristicsOfFitnessHealth == "Yes, but") %>% 
+  select(FitnessHealthCharacteristic, MethodCharacteristic, CommentMethodCharacteristic)
+```
+
+Now let's look at the other individual characteristics included in habitat selection analyses.
+
+```{r other_char}
+review %>% select(IncludeOtherCharacteristic) %>% table()
+```
+
+```{r other_yes}
+other_yes <- review %>% filter(IncludeOtherCharacteristic == "Yes") %>% 
+  select(OtherCharacteristic, MethodCharacteristic, CommentMethodCharacteristic)
+nrow(other_yes)/n
+```
+
+```{r other_yes_details}
+other_yes %>% select(OtherCharacteristic) %>% table()
+```
+
+```{r other_yes_details_method}
+other_yes %>% select(MethodCharacteristic) %>% table()
+```
+
+
+
+```{r plot_characteristics}
+char_plot <- ggplot() + 
+  geom_bar(data = review, aes(x = "1", 
+                              fill = as.factor(IncludeCharacteristicsOfFitnessHealthSpecific))) +
+  geom_bar(data = review, aes(x = "2", 
+                              fill = as.factor(IncludeOtherCharacteristic))) +
+  scale_x_discrete(breaks = c("1","2"),
+        labels = c("Fitness/health", "Other characteristic")) +
+  theme_classic() +
+  xlab("Individual characteristics considered") + 
+  ylab("Number of articles") +
+  guides(fill = guide_legend(title= "Characteristic included in habitat \nselection analysis")) +
+  scale_fill_grafify() +
+  theme(axis.title = element_text(size = rel(1)),
+        axis.text = element_text(size = rel(0.9)),
+        axis.title.x = element_text(margin = margin(t = 5)),
+        axis.title.y = element_text(margin = margin(r = 5)),
+        legend.title = element_text(size = rel(1)),
+        legend.text = element_text(size = rel(0.9)),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+        axis.line = element_line(colour = 'black', linewidth = 0.1),
+        axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+        plot.margin = unit(c(1.5, 0, 0, 1), 'lines'))
+char_plot
+```
+
+
+
+## Combined plots
+
+```{r Fig_S1_review_res, fig.height=6, fig.width=6, dev = 'png'}
+ggarrange(cons_plot, char_plot, 
+          labels = c("A", "B"), 
+          label.x = rep(0.1, 2), 
+          label.y = rep(0.975, 2), 
+          font.label = list(size = 12, face="plain"),
+          nrow = 2, ncol = 1)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
