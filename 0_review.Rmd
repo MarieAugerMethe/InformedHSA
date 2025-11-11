@@ -1,5 +1,5 @@
 ---
-title: "Litterature review"
+title: "Literature review"
 author: "Marie Auger-Méthé"
 date: "`r Sys.Date()`"
 output: html_document
@@ -29,11 +29,11 @@ library(grafify) # For color-blind friendly palette
 
 # Visualizing the results
 
-## Loading the litterature review data
+## Loading the literature review data
 
 ```{r loading_data}
 review <- read_excel(path=file.path(here("Data/0_Review"),
-                                  "Litterature_review.xlsx"))
+                                  "Literature_review.xlsx"))
 head(review)
 ```
 
