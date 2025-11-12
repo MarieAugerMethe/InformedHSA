@@ -43,8 +43,28 @@ Specifically it contains the columns:
 
 3. Keywords to use: contains a list of keywords to use from some of the columns (to help consistency).
 
+## Simulations
+
+The simulations do not require data. 
+However, as some code sections take hours to run, 
+we have saved the results in .csv files. The files are:
+ - `sim.rsf.sc1_20251112.csv`
+ - `sim.rsf.sc2_20251112.csv`
+ - `sim.rsf.sc3_20251112.csv`
+ - `sim.ssf.sc1_20251112.csv`
+ - `sim.ssf.sc2_20251112.csv`
+
+These files are not stand alone files. 
+They are meant to be loaded in the simulation code and all of the columns are detailed in the code itself.
+
 # Code
+
+## Literature review
 
 The code to reproduce the figures of the literature review is available in `0_review.Rmd`. 
 A compiled version is also available in `0_review.html`.
 
+## Simulations
+
+The code to reproduce simulations and the associated figures is available in two sets of files. 
+The first set of files are for 
