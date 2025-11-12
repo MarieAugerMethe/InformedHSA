@@ -1,0 +1,527 @@
+---
+title: "RSF for murres"
+author: "Marie Auger-Méthé"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set up
+
+## Packages
+
+```{r, message = FALSE}
+library(here) # To simplify data sharing
+library(tidyverse)
+library(ggpubr) # To put plots side-by-side
+library(sf) # to handle spatial object
+library(amt) # to prep data for ssf (and fit simpler ssf)
+library(glmmTMB)
+library(terra)
+library(tidyterra)
+library(broom.mixed) # For coefficient plots
+library(dotwhisker) # For coefficient plots
+library(ggeffects) # For effects plot
+library(kableExtra)
+library(modelsummary)
+options(modelsummary_factory_default = 'kableExtra') # New version has tinytable default option
+options(modelsummary_factory_latex = 'kableExtra')
+options(modelsummary_factory_html = 'kableExtra')
+library(tinytable)
+library(MuMIn) # for AICc
+library(ggnewscale)
+library(grafify) # For color-blind friendly palette
+```
+
+Colour for figures.
+
+```{r}
+# Same colour as figure 1.
+col.oi <- col2rgb(palette.colors(palette = "Okabe-Ito"), 
+                  alpha = FALSE) # Colour-blind friendly palette
+murre.col <- rgb(col.oi[1,8], 
+                 col.oi[2,8], 
+                 col.oi[3,8], 
+                 maxColorValue = 255)
+water.col <- rgb(222, 235, 247, maxColorValue = 255) 
+land.col <- "floralwhite"
+```
+
+# Murre data
+
+We chose to take 1 location per deployment, specifically the location that is farthest away from the colony, as it represents their destination and where they are likely foraging. For the three individuals for which we had 2 deployments, we randomly selected one deployment, leaving us with 54 independent foraging locations to analyse. Here are these selected locations. 
+
+```{r}
+murres <- read.csv(file=file.path(here("Data/1_Murres/Movement"),
+                                  "murres_rsf_clean_maxdist.csv"))
+head(murres)
+```
+
+We have a balanced number of deployment per years.
+
+```{r}
+# Make date time as date time object
+murres$UTC_datetime <- ymd_hms(murres$datetime_UTC, tz="UTC")
+
+murres %>% count(year(UTC_datetime)) 
+```
+
+Formatting some of the columns.
+
+```{r}
+# Murre ID with deployment ID (so factor)
+murres$dep_id_short <- as.factor(murres$dep_id_short)
+# Date of release
+murres$tagging_date_local <- with_tz(ymd_hms(murres$datetime_release_UTC, tz = "UTC"),
+                                     tz = "America/Montreal")
+```
+
+
+Create data summary table.
+
+Need to add smaller font size in Latex: scriptsize after centering.
+
+```{r murre.data.table}
+murre.data.table <- murres %>% 
+  reframe("Individual" = metal_band,
+          "Date of capture" = date(tagging_date_local),
+          "Dist. from colony (km)" = round(distNest,2), 
+          "Duration (hr)" = round(deployment_dur_min/60,2),
+          "Mass gained (g)" = mass_gain,
+          "Rate of mass gain (g/hr)" = round(rate_mass, 3))
+murre.data.table <- murre.data.table[order(murre.data.table$Individual),] 
+murre.data.table
+cat(kable(murre.data.table, 
+          format = "latex", 
+          caption = "Thick-billed murre data summary. For each individual (identified by their Canadian Wildlife Service bands), we present the date of capture, the duration of the deployment (in hours), the maximum distance from the colony for the farthest location of the foraging bout (in kilometres), the mass gained or lost during the deployment (in grams), and the rate of mass gain over the deployment (in grams per hour).", 
+          booktabs=TRUE, linesep = "", row.names = FALSE), 
+    file = "murre_data_summary.tex")
+```
+
+
+We will project all of our layers in the EPSG:32617 (WGS 84 / UTM zone 17N). Most (all) are already projected
+
+```{r}
+chosen.proj <- 32617
+```
+
+Get land and nest location. They are all already transformed in UTM.
+
+```{r, message=FALSE}
+nests <- st_read(file.path(here("Data/1_Murres/Covariates/Nest_UTM"), "nests_UTM.shp"))
+land <- st_read(file.path(here("Data/1_Murres/Covariates/Bylot_UTM"), "Bylot_UTM.shp"))
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = land, col="green", fill=NA) +
+  geom_sf(data = nests, col="hotpink")
+```
+
+Map the data.
+
+```{r}
+murres.sf <- st_as_sf(murres, coords = c("X_UTM", "Y_UTM"), remove=FALSE)
+st_crs(murres.sf) <- chosen.proj
+ggplot() +
+  geom_sf(data=murres.sf, aes(col=rate_mass)) +
+  geom_sf(data = land, col="green", fill=NA) +
+  geom_sf(data = nests, col="hotpink")
+```
+
+
+
+# Function to prep data for rsf
+
+Sample available locations. Check what is the farthest distance from nest/colony recorded.
+
+```{r}
+max(murres$distNest)
+```
+
+Set study area to be slightly larger: 125 km.
+
+```{r study_area, message=FALSE}
+radius.sa <- 125 #km
+study.area <- st_buffer(nests[1,], radius.sa*1000)
+study.area <- st_difference(study.area, land, sparse=FALSE)
+```
+
+Sample the available location
+
+```{r}
+# Number of available per locations
+n.avail <- 500
+# Sample more, because we will remove those on land
+set.seed(87876982)
+rsf.avail <- random_points(study.area, 
+                           n = nrow(murres.sf)*n.avail*2) # Sample twice the amount needed
+rsf.avail.sf <- st_as_sf(rsf.avail, coords=c("x_", "y_"))
+st_crs(rsf.avail.sf) <- chosen.proj
+```
+
+Remove points on land.
+
+```{r}
+rsf.avail.sf$onLand <- rowSums(st_intersects(rsf.avail.sf, land, sparse=FALSE))
+rsf.avail.sf <- subset(rsf.avail.sf, !onLand)
+```
+
+Keep only the amount needed.
+
+```{r}
+# Take only those that are needed (took more to remove land and nest)
+rsf.avail.sf <- rsf.avail.sf[1:(n.avail*nrow(murres.sf)),]
+nrow(rsf.avail.sf)/n.avail
+nrow(murres.sf)
+```
+
+Plot the study area with available for supplementary material.
+
+```{r Fig_SupMat1_murre_available, fig.height=6, fig.width=6, dev = 'png', cache = TRUE}
+study.area.box <- st_bbox(study.area)
+mar.all <- c(0.5, 1, 0.5, 0.5) # margin
+ggplot() +
+  geom_sf(data = study.area) +
+  geom_sf(data = land, fill= land.col) +
+  geom_sf(data = rsf.avail.sf, col= "lightgrey", cex = 0.7) +
+  geom_sf(data = study.area, fill = NA) +
+  geom_sf(data = murres.sf, col=murre.col) +
+  coord_sf(xlim = c(study.area.box[1], study.area.box[3]), 
+           ylim = c(study.area.box[2], study.area.box[4])) +
+  theme(panel.background = element_rect(fill = water.col),
+        panel.border = element_rect(colour = murre.col, fill=NA, linewidth = 1)) +
+  theme(plot.margin = unit(mar.all, 'lines'), 
+        plot.background = element_rect(fill='transparent', color='transparent')) +
+  scale_y_continuous(breaks = seq(70, 74, by = 0.5)) + 
+  scale_x_continuous(breaks = seq(-100, -70, by = 2)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+```
+
+Link availables to observed.
+
+```{r}
+cols <- c("dep_id", "dep_id_short", "rate_mass", "mass_gain", "UTC_datetime") 
+murres.sf$case_ <- TRUE
+murres <- st_drop_geometry(murres.sf)
+
+for(i in seq_along(cols)){
+    rsf.avail.sf[,cols[i]] <- rep(murres[,cols[i]], each = n.avail)
+}
+rsf.all.sf <- rbind(murres.sf[, c("case_",cols)], 
+                    rsf.avail.sf[, c("case_",cols)])
+```
+
+Calculate the distance from colony for all locations, including available. Here we used straightline distance to keep the case study as simple as possible, but in the future, one could consider looking at distance over water to account for the propensity of murres to travel over water.
+
+```{r}
+rsf.all.sf$distCol <- as.numeric(st_distance(rsf.all.sf,
+                                                   nests[1,]))/1000
+
+ggplot() +
+  geom_sf(data = rsf.all.sf, aes(color = distCol), size=0.5) +
+  geom_sf(data = land, col = "green", fill=NA)
+```
+
+
+```{r}
+all.steps <- as.data.frame(rsf.all.sf)
+
+# Get the actual individual ID (not just deployment ID)
+all.steps$ID <- substr(all.steps$dep_id_short,1,4)
+```
+
+As numeric.
+
+```{r}
+all.steps$case <- as.numeric(all.steps$case_)
+```
+
+Weight for rsf. See Muff et al. 2020.
+
+```{r}
+all.steps$weight <- 1000^(1-all.steps$case)
+```
+
+## Fit models
+
+```{r}
+fit.rsf <- function(formula, data, start = list(theta = log(1e6)), map = list(theta=factor(NA))){
+    rsf <- glmmTMB(formula, family=binomial, 
+                 data = data, start = start, map = map, weights = weight)  
+  return(rsf)
+}
+```
+
+
+AICc table function.
+
+```{r aicc.table.fx}
+AICcTable <- function(m, ...){
+  namesObj <- names(tibble::lst(m, ...))
+  namesObj[1] <- deparse(substitute(m))
+  AICc.table <- AICc(m,...)
+  row.names(AICc.table) <- namesObj
+  AICc.table <- AICc.table %>% mutate(deltaAICc = AICc - min(AICc, na.rm=TRUE))
+  AICc.table[order(AICc.table$deltaAICc),]
+}
+```
+
+Base info for tables of results.
+
+```{r par.est.table.setup}
+title <- "Parameter estimates from the two RSF models applied to the thick-billed murre foraging location data. The parameter estimates along with their standard errors are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the signicance level of 0.05. Note that as recomended by Muff et al. (2020), we have fixed the value of the standard deviation (SD) of the intercept to a large value (1e6). Note that while we estimate the intercept value, we do not report its value as it is ecologically irrelevant."
+
+coef_map <- c(#"(Intercept)" = "$\\beta_0: (intercept)$", 
+              "distCol" = "$\\beta_1: d_{n,j}$", # Distance to colony
+              "distCol:rate_mass" = "$\\beta_2: m_n \\times d_{n,j}$") #"Distance to colony X Rate of mass gain"
+
+
+estimates <- "{estimate}{stars}"
+statistics <- "({std.error})" 
+```
+
+We will look at two RSFs that model selection as a function of distance to colony. The baseline model (model 1) only includes distance to colony as a covariate, while the new model (model 2) includes an interaction with the rate of mass gain.
+
+
+Model 1 (baseline model): Rate of mass gain ignored
+
+$$\text{logit}(\pi_{nj}) = \beta_{0n} + \beta_{1}d_{nj}\qquad y_{nj} \sim \text{Bern}(\pi_{nj}),$$
+where logit represents the logistic link function, $y_{nj}$ is a variable that represent whether point $j$ of individual $n$ is a used ($y_{nj} = 1$ for $j = 0$) or available point ($y_{nj} = 0$ for $j = 1, ..., J$), $d_{nj}$ is the distance to colony for point $j$ of individual $n$, and the intercept is modelled with a random effect that has a standard deviation fixed to a large value, here $\beta_{0n} \sim \text{N}(\beta_0, 1000000^2)$.
+
+```{r m1}
+rsf.jd <- fit.rsf(formula = case ~ distCol +
+                      (1 | dep_id), 
+                      data = all.steps)
+```
+
+
+Model 2 (new model): Rate of mass gain included
+
+$$\text{logit}(\pi_{nj}) = \beta_{0n} + \beta_{1}d_{nj} + \beta_{2}m_nd_{nj} \qquad y_{nj} \sim \text{Bern}(\pi_{nj}),$$
+
+which differ from model one only in one term where $\beta_2$ is the interaction between selection and $m_n$ the rate of mass gain during the foraging trip of individual $n$.
+
+We only have one location per trip, so there is no need to account for pseudo-replication, and not enough data to estimates individual variation in RSF. Therefore we have not included a random effect on $\beta_1$ in both models nor $\beta_2$ in model 2. However, as shown in the simulation study (`1_rsf_simulations.Rmd`), we show that when there is only one used point per individual, we need a random effect only on the intercept to account for the nested data structure. This nested data structure is created because we need to associate available points to each individual to assign them a rate of mass gain value so that we can include rate of mass gain in the model.
+
+
+```{r m2}
+rsf.jd.fit <- fit.rsf(formula = case ~ 
+                        distCol + distCol:rate_mass + 
+                      (1 | dep_id), 
+                      data = all.steps)
+```
+
+
+```{r aic.table}
+AICcTable(rsf.jd, rsf.jd.fit)
+```
+
+```{r result.tables}
+models <- list("Ignored" = rsf.jd,
+               "In selection function" = rsf.jd.fit)
+
+model.est <-  modelsummary(models, 
+                           estimate = estimates, 
+                           statistic = statistics,
+             coef_map = coef_map,
+             gof_map = NA,
+             fmt = fmt_significant(3),
+             stars = c("*"=0.05),
+             title = title,
+             escape = FALSE) %>%
+  add_header_above(c("Par: Variables" = 1, "Rate of mass gain" = 2),
+                   escape = FALSE)
+```
+
+```{r}
+options(modelsummary_format_numeric_latex = "plain")
+# To output for latex
+table.latex <- modelsummary(models,
+             estimate = estimates,
+             statistic = statistics,
+             coef_map = coef_map,
+             gof_map = NA,
+             fmt = fmt_significant(3),
+             stars = c("*"=0.05),
+             title = title,
+             output = "murre_par_est.tex",
+             escape = FALSE) %>%
+  add_header_above(c("Par: Variables" = 1, "Rate of mass gain" = 2),
+            escape = FALSE)
+cat(table.latex, file="murre_par_est.tex")
+```
+
+Predict RSF for study area. First create a raster of study area.
+
+```{r}
+# Create raster with distance to colony
+nrows <- ncols <- 500
+m <- matrix(1:(nrows*ncols), nrow=nrows, ncol=ncols)
+grid <- rast(m, extent=study.area.box, crs = crs(nests))
+dist.nest <- distance(grid, nests)/1000
+# Limit to study area.
+dist.nest[dist.nest > radius.sa] <- NA
+names(dist.nest) <- "distCol"
+```
+
+Predict RSF.
+
+```{r}
+rsf.map.nomass <- exp(summary(rsf.jd)$coef$cond["distCol",1] * dist.nest)
+rsf.map.minmass <- exp(summary(rsf.jd.fit)$coef$cond["distCol",1] * dist.nest +
+  summary(rsf.jd.fit)$coef$cond["distCol:rate_mass",1] * dist.nest * min(all.steps$rate_mass))
+rsf.map.maxmass <- exp(summary(rsf.jd.fit)$coef$cond["distCol",1] * dist.nest +
+  summary(rsf.jd.fit)$coef$cond["distCol:rate_mass",1] * dist.nest * max(all.steps$rate_mass))
+
+all.preds <- rast(list(mass.ignored = rsf.map.nomass,
+                       min.mass = rsf.map.minmass,
+                       max.mass =rsf.map.maxmass))
+```
+
+
+Colour for min and max mass and rsf and formatting.
+
+```{r}
+# From: graf_palettes[["OrBl_div"]]
+
+mass.min.col <- "#9E3D21" #"#d73027"
+mass.max.col <- "#2B5B8A" #"#4575b4"
+mass.0.col <- "#D8D4C9" #"#ffffbf"
+
+rsf.min.col <- "#ffffcc"
+rsf.mid.col <- "#41b6c4"
+rsf.max.col <- "#0c2c84"
+
+legend.text.size <- 0.8
+```
+
+Making independent plots. Create mapping function.
+
+```{r}
+val.range <- range(as.data.frame(all.preds))
+rate.mass.range <- range(murres.sf$rate_mass)
+
+mapping <- function(model.name, col.box = "black", plot.mar = c(1,1,0,1)){
+  map <- ggplot() +
+    geom_spatraster(data = all.preds[[model.name]]) +
+    scale_fill_gradient2(low=rsf.min.col, mid=rsf.mid.col, high=rsf.max.col,
+                      midpoint = mean(val.range), limit = val.range, na.value = NA) +
+    geom_sf(data=land, fill=land.col, linewidth = 0.3) +
+    geom_sf(data = study.area, fill = NA, linewidth = 0.3) +
+    geom_sf(data = murres.sf, aes(col=rate_mass)) +
+    scale_color_gradient2(low=mass.min.col, mid=mass.0.col, high= mass.max.col,
+                      midpoint = 0, limit = rate.mass.range, na.value = NA) +
+    coord_sf(xlim = c(study.area.box[1], study.area.box[3]),
+           ylim = c(study.area.box[2], study.area.box[4]), expand = FALSE) +
+    theme(panel.background = element_rect(fill = water.col),
+          panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
+          legend.title = element_text(size = rel(0.5)),
+          legend.text = element_text(size = rel(0.5)),
+          legend.position = "top",
+          legend.box = "horizontal",
+          axis.text = element_text(size = rel(0.5)),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+    guides(fill = guide_colorbar(title = "RSF", order = 1,
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)))),
+           col = guide_colorbar(title = "Rate of mass gain", order = 2,
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size))))) +
+    theme(plot.margin = unit(plot.mar, 'lines')) +
+  scale_y_continuous(breaks = seq(70, 74, by = 0.5)) + 
+  scale_x_continuous(breaks = seq(-100, -70, by = 2))
+  return(map)
+}
+
+```
+
+
+```{r}
+map.mass.ignored <- mapping(model.name = "mass.ignored")
+map.mass.min <- mapping(model.name = "min.mass", col.box = mass.min.col)
+map.mass.max <- mapping(model.name = "max.mass", col.box = mass.max.col)
+```
+
+```{r}
+legend.plot.map <- as_ggplot(get_legend(mapping(model.name = "mass.ignored"))) 
+```
+
+Show relationship with distance to colony.
+
+```{r}
+rel.dist <- data.frame(dist.col = seq(0, 125, by =1))
+rel.dist$mass.ignored <- exp(summary(rsf.jd)$coef$cond["distCol",1] * rel.dist$dist.col)
+rel.dist$mass.min <- exp(summary(rsf.jd.fit)$coef$cond["distCol",1] * rel.dist$dist.col +
+  summary(rsf.jd.fit)$coef$cond["distCol:rate_mass",1] * rel.dist$dist.col * min(all.steps$rate_mass))
+rel.dist$mass.0 <- exp(summary(rsf.jd.fit)$coef$cond["distCol",1] * rel.dist$dist.col) 
+rel.dist$mass.max <- exp(summary(rsf.jd.fit)$coef$cond["distCol",1] * rel.dist$dist.col +
+  summary(rsf.jd.fit)$coef$cond["distCol:rate_mass",1] * rel.dist$dist.col * max(all.steps$rate_mass))
+```
+
+```{r}
+rel.dist.plot <- ggplot() +
+  geom_line(data = rel.dist, aes(x = dist.col, y = mass.ignored)) +
+  geom_line(data = rel.dist, aes(x = dist.col, y = mass.min), color = mass.min.col) +
+  geom_line(data = rel.dist, aes(x = dist.col, y = mass.max), color = mass.max.col) +
+  theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
+  xlab("Distance to colony (km)") + ylab("RSF") + 
+  guides(Mass.ignored = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
+                                                  gp = grid::gpar(fill = "black", col=NA)), 
+                                 title = "Ignoring mass gain", order = 1, 
+                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+           Mass.min = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = mass.min.col, col=NA)), 
+                                 title = "Min. rate of mass gain", order = 2, 
+                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+           Mass.max = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = mass.max.col, col=NA)), 
+                                 title = "Max. rate of mass gain", order = 4, 
+                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                               legend.position = "top"))) +
+    theme_classic() + 
+    theme(legend.position = "top",
+          axis.title = element_text(size = rel(0.7)),
+          axis.text = element_text(size = rel(0.5)),
+          panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          axis.line = element_line(colour = 'black', linewidth = 0.1),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+          plot.margin = unit(c(1.05, 1.15, 0, 1), 'lines'))
+rel.dist.plot
+```
+
+Grab legend.
+
+```{r}
+legend.plot.rel <- as_ggplot(get_legend(rel.dist.plot)) 
+```
+
+## Final figure with relationship to distance to colony
+
+```{r Fig_3_murre_res, fig.height=6, fig.width=6, dev = 'png'}
+ggarrange(ggarrange(legend.plot.rel, legend.plot.map,
+                    nrow=2, widths = c(0.7, 0.5)),
+          ggarrange(
+          map.mass.ignored, rel.dist.plot, 
+          map.mass.min, map.mass.max, legend = "none",
+          labels = c("A", "B", "C", "D"), label.x = rep(0.2,4), label.y = rep(1, 4), 
+              font.label = list(size = 8, face="plain"),
+          nrow = 2, ncol = 2),
+          nrow = 2, heights = c(0.2,0.9))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+# Litterature cited
+
+Muff S., Signer J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087

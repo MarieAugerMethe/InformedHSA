@@ -12,7 +12,7 @@ All the data is available in the folder `Data`
 
 ## Literature review
 
-The literature review is available in the file `Literature_review.xlsx` 
+The literature review information is available in the file `Literature_review.xlsx` 
 found in the subfolder `0_Review`. 
 
 The excel file has 3 tabs:
@@ -56,6 +56,38 @@ we have saved the results in .csv files. The files are:
 
 These files are not stand alone files. 
 They are meant to be loaded in the simulation code and all of the columns are detailed in the code itself.
+
+## Case study 1: murres
+
+The data files associated with the first case study are found in the subfolder `1_Murres`. 
+
+1. `murres_rsf_clean_maxdist.csv`: file that contains the movement data for thick-billed murres. Found in the subfolder `Movement`. 
+Specifically, this file contains the farthest location from the colony 54 murres did during a foraging bout (~ 1 day; deployment < 26 hours).
+The columns are:
+    - dep_id: the identifier for the deployment
+    - metal_band: the individual number, specifically their Canadian Wildlife Service metal band number
+    - dep_id_short: short version of dep_id
+    - lon: longitude of the "foraging" location (in decimal degrees)
+    - lat: latitude of the "foraging" location (in decimal degrees)
+    - datetime_UTC: date time of the "foraging" location (in UTC)
+    - datetime_release_UTC: date time when the individual was released (in UTC)
+    - deployment_dur_min: duration of deployment (in minutes)
+    - mass_gain: massed gained during the deployment (in grams)
+    - rate_mass: rate of mass gained during the deployment (in grams/minutes)
+    - dep_lon: longitude of the deployment location (in decimal degrees)
+    - dep_lat: latitude of the deployment location (in decimal degrees)
+    - distNest: distance to nest, sometimes referred to distance to colony (in kilometers)
+    - X_UTM: Easting value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
+    - Y_UTM: Northing value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
+
+2. `Nest_UTM`: folder that contains the files needed for the `nest_UTM.shp` shapefile. 
+It is simply the colony location in a spatial object. 
+The Easting and Northing values in meters and the coordinate system is EPSG:32617 (WGS 84 / UTM zone 17N).
+
+3. `Bylot_UTM`: folder that contains the files needed for the `Bylot_UTM.shp` shapefile. 
+This shapefile contains the land layer around Bylot Island, Nunavut, Canada. 
+The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
+We use here the full (f) resolution.
 
 # Code
 

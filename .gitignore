@@ -5,3 +5,8 @@
 
 
 *.Rproj
+
+
+# Ignore macOS system files
+.DS_Store
+**/.DS_Store
