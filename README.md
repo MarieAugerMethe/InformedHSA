@@ -129,16 +129,20 @@ Only the 200 meters buffer is kept in the final shapefile.
 
 4. `CumHumanImpact.tiff`: contains the cumulative human impact raster. 
 The file is found in the `Covariates/HumanImpact` subfolder. 
-The original data is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
+The original data from Mu et al. (2021, 2022) is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
 We clipped it to be the area around the study area and changed the projection to EPSG:26910 (WGS 84 / UTM zone 10N).
 Using the R package `terra` we filled missing values on the coast using:
 
-  ```
-  humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
-  humanImpact <- mask(humanImpact, land)
-  # land is the layer found in the `bc_UTM.shp` shapefile
-  ```
+```
+# original humanImpact is the clipped and transformed layer from Mu et al. available via the link above
+humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
+humanImpact <- mask(humanImpact, land)
+# land is the layer found in the `bc_UTM.shp` shapefile
+```
 
+Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng M. (2021). An annual global terrestrial Human Footprint dataset from 2000 to 2018. figshare. Figure. https://doi.org/10.6084/m9.figshare.16571064.v7
+
+Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng, M. (2022). A global record of annual terrestrial human footprint dataset from 2000 to 2018. Scientific Data, 9, 176.
 
 # Code
 
