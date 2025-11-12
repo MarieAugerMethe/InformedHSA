@@ -136,8 +136,9 @@ Using the R package `terra` we filled missing values on the coast using:
   ```
   humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
   humanImpact <- mask(humanImpact, land)
+  # land is the layer found in the `bc_UTM.shp` shapefile
   ```
-  where `land` is the layer found in the `bc_UTM.shp` shapefile.
+
 
 # Code
 
