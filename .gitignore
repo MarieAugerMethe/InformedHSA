@@ -13,3 +13,9 @@
 # Ignore macOS system files
 .DS_Store
 **/.DS_Store
+
+# Ignore .tex created by code
+murre_data_summary.tex
+murre_par_est.tex
+
+
