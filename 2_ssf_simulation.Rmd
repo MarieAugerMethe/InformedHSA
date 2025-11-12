@@ -1,0 +1,998 @@
+---
+title: "SSF simulations"
+author: "Marie Auger-Méthé"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Goals
+
+1. Use simulations to show that ignoring health and/or fitness proxies can bias selection analysis when using an step selection function.
+2. Check that the proposed methodology works.
+
+# General set up
+
+## Load packages
+
+```{r packages, message=FALSE, warning=FALSE}
+library(terra) # for transforming raster into terra object for plotting
+library(tidyterra) # for easy plotting of raster
+library(fields) # to simulate data with prioritizr
+library(prioritizr) # to simulate Gaussian random fields
+library(sf)
+library(tidyverse)
+library(ggpubr)
+library(MuMIn) # For AICc
+library(CircStats) # to simulate steps
+
+
+library(amt) # to fit ssf
+#install.packages("glmmTMB",type="source") # If problems with TMB version
+library(glmmTMB) # to fit ssf 
+
+
+library(parallel)
+n.cores <- detectCores() # Using all of the cores from computer
+RNGkind("L'Ecuyer-CMRG") # To set seed with mclapply
+
+```
+
+## Plot set up
+
+```{r plot_setup, cache=TRUE}
+# Colour for proxy
+proxy.min.col <- "#d73027"
+proxy.mid.col <- "#ffffbf"
+proxy.max.col <- "#4575b4"
+# Size of label
+axis.title.size <- rel(1)
+axis.label.size <- rel(0.8)
+```
+
+# General simulation set up - with a simple example
+
+## Simulate spatial covariates
+
+Simulate a spatial covariate using a Gaussian random field.
+
+First, we will define the size of our study area, and create a base raster.
+
+```{r study area, cache=TRUE}
+study.area <- terra::rast(
+  ncols = 300, nrows = 300, 
+  xmin = -150, xmax = 150, 
+  ymin = -150, ymax = 150, 
+  vals = 1)
+
+ggplot() +
+  geom_spatraster(data = study.area)
+```
+
+Then, we use the function `simulate_data` from the packages `prioritizr` to simulate the field. The argument `scale` defines the spatial autocorrelation, while `sd` the standard deviation of the data, and `n` is the number of layers.
+Here, we simulate one covariate named `cov1`.
+
+```{r cov1}
+set.seed(1987)
+# simulate data using a Gaussian field
+
+cov1 <- simulate_data(study.area, n = 1, scale = 0.9, sd = 0.1)
+names(cov1) <- "cov1"
+
+ggplot() +
+  geom_spatraster(data = cov1) +
+  coord_sf(expand = FALSE)
+```
+
+# Function to simulate movement based on a step selection function
+
+Here we define a function that can simulate the data using the functions of the package `amt`. The functions follow the procedures discussed in Signer et al. (2024). These procedures have multiple steps. 
+
+Step 1 is to create the model for the simulation using `make_issf_model`. Here, we use a gamma distribution for the step length (shape and scale are 1), and a von Mises distribution for the turning angle (kappa = 1). The model allows for the selection to be affected by the health/fitness proxy. Note that the selection is linked to the environmental covariate at the end of the step. 
+
+Step 2 is to create the re-distribution kernel based on the model using `redistribution_kernel`. Here we start the simulation in an area close to the middle of the raster.
+
+Step 3 simulates the data based on the re-distribution kernel using `simulate_path`. 
+
+```{r ssf_sim}
+# betas <- c(1,1)
+# mov.par <- list(shape = 1, scale = 1, kappa = 1)
+# val.proxy <-  c(-1, 0, 1)
+# proxy.n <- rep(5, 3)
+# n.steps <- 50
+# cov <- cov1
+# start.width <- 25
+# m <- "proxy_in_sel"
+
+
+
+# Function to simulate the full scenario
+ssf_sim <- function(betas, mov.par, val.proxy, proxy.n = rep(10,3), 
+                    n.steps = 100, cov = cov1, start.width = 25, m = "proxy_in_sel"){
+# betas: vector of 2 values, 1st is coef. for cov, 2nd is coef. for interaction cov and health proxy
+# val.proxy: values for the health proxy
+# m: whether simulating with health/proxy affecting selection (default, m = "proxy_in_sel") or not (m = "proxy_not_in_sel")
+
+  # Step 1: create ssf model
+  # Our model allows for the health/fitness proxy to affect selection
+  if(m == "proxy_in_sel"){
+    ssf_m <- make_issf_model(
+      coefs = c("cov_end" = betas[1], # Covariate at the end of step affect selection 
+            "cov_end:proxy_end" = betas[2]),
+      sl = make_gamma_distr(shape = mov.par$shape, scale = mov.par$scale), 
+      ta = make_vonmises_distr(kappa = mov.par$kappa))
+  }else if(m == "proxy_not_in_sel"){
+    ssf_m <- make_issf_model(
+      coefs = c("cov_end" = betas[1]), # Covariate at the end of step affect selection 
+      sl = make_gamma_distr(shape = mov.par$shape, scale=mov.par$scale), 
+      ta = make_vonmises_distr(kappa = mov.par$kappa))
+  }else{
+    print("The model (m) selected is not supported.")
+  }
+  
+  
+  # Steps 2-3:  create the re distribution kernel and simulate the data based on the kernel
+
+  val.proxy.seq <- c(rep(val.proxy[1], proxy.n[1]),
+                     rep(val.proxy[2], proxy.n[2]),
+                     rep(val.proxy[3], proxy.n[3]))
+
+  cond_rast <- cov
+  
+  sims <- mclapply(seq_along(val.proxy.seq), 
+                   FUN = function(i){
+                     start <- make_start(x = c(runif(1, -start.width, start.width),
+                                               runif(1, -start.width, start.width)),
+                                         0)
+                     
+                     values(cond_rast) <- val.proxy.seq[i]
+                     map_cond <- rast(list(cov = cov, proxy = cond_rast))
+                     
+                     dist_k <- redistribution_kernel(
+                       x = ssf_m,
+                       start = start,
+                       #stochastic = TRUE,
+                       landscape = "continuous",
+                       n.control = 500, # too long if we use the default (10000 is similar time to discrete)
+                       map = map_cond)
+                     
+                     path <- amt::simulate_path(dist_k,
+                       n = n.steps,
+                       start = start)
+                     
+                     path$ID <-  paste("ID", val.proxy.seq[i], i, sep = "_")
+                     path$proxy <- val.proxy.seq[i]
+
+
+      return(path)})
+  
+  
+   sim_all_cond <- do.call("rbind", sims)
+  
+  return(sim_all_cond)
+}
+```
+
+Let us test our function by simulating tracks for one individual in each of three proxy values. The tracks are each of length 50 (`n.steps=0`). The coefficient for the covariate is 1, and the one for the interaction with the health proxy is also 1 (`betas = c(1,1)`). The values for the health proxies are -1, 0, and 1 (`val.proxy =  c(-1, 0, 1)`) and we simulate 5 individuals in each health proxy category (`proxy.n = rep(5,3)`).
+
+```{r}
+betas_sim.test <- c(1, 1)
+mov.par_sim.test <- list(shape = 1, scale=1, kappa = 1)
+```
+
+```{r sim_1_test}
+set.seed(9876)
+cl <- makeCluster(n.cores)
+t0 <- Sys.time()
+sim_t <- ssf_sim(betas = betas_sim.test, mov.par = mov.par_sim.test, cov = cov1, val.proxy =  c(-1, 0, 1), 
+                 proxy.n = rep(5, 5), n.steps = 100)
+Sys.time() - t0
+stopCluster(cl)
+```
+
+
+```{r sim_t_plot}
+sim.sf <- st_as_sf(sim_t, coords = c("x_", "y_"), remove = FALSE)
+sim.sf.path <- sim.sf %>% group_by(ID) %>%  
+  summarize(ID = unique(ID), do_union=FALSE) %>% 
+  st_cast("LINESTRING")
+
+ggplot() +
+  geom_spatraster(data = cov1) + 
+  geom_sf(data = sim.sf, aes(col= as.factor(proxy)), lwd = 0.4) + 
+  geom_sf(data = sim.sf.path) +
+  coord_sf(expand = FALSE) 
+```
+
+
+# Function to prep data for ssf (simpler version for simulations)
+
+```{r}
+# tracks <- sim_t
+# x.name <- "x_"
+# y.name <- "y_"
+# id.col.name <- "ID"
+# t.name <- "t_"
+# cov <- list(cov1 = cov1)
+# fit.col.name <- "proxy"
+# n.avail <- 10
+
+
+prep.data.ssf.sim <- function(tracks, cov, fit.col.name = "proxy", id.col.name = "ID", 
+                          x.name = "x_", y.name = "y_", t.name = "t_", n.avail = 10){
+# tracks: tibble with locations from simulations
+# cov: list of covariate rasters
+# fit.col.name: name of column(s) with fitness prox
+# id.col.name: name of column in tracks that has the individual id
+# x.name: name of column in tracks with x coordinate
+# y.name: name of column in tracks with y coordinate
+# t.name: name of column in tracks with date time
+# n.available: number of available points per used locations
+  
+  # Create observed steps
+  tracks.id <- tracks %>% nest(.by= c(!! sym(id.col.name), !!! syms(fit.col.name)))
+  steps.id <- tracks.id %>% 
+    mutate(trk = map(data, function(d) {
+      d %>% make_track(.x = !! sym(x.name), .y = !! sym(y.name), .t= !! sym(t.name)) %>% steps()})) 
+  
+  
+  steps.avail <- steps.id
+  steps.avail$rp <- NULL
+  
+  # Here I want the parameters used to create the random steps to be from the same distribution (not taken from the estimated for each individual)
+  data <- steps.avail %>% dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), trk) %>%  
+    unnest(cols = c(trk)) 
+  gamma_par <-  data$sl_ %>% fit_distr("gamma")
+  vonmises_par <- data$ta_ %>% fit_distr("vonmises")
+  
+  for(i in 1:nrow(steps.avail)){
+    steps.avail[[i,"rp"]][[1]] <- steps.id[[i,"trk"]][[1]] %>% 
+      random_steps(n_control = n.avail, 
+                   sl_distr = make_gamma_distr(shape = gamma_par$params$shape,
+                                               scale = gamma_par$params$scale,
+                                               vcov = gamma_par$vcov),
+                   ta_distr = make_vonmises_distr(kappa = vonmises_par$params$kappa,
+                                                  vcov = vonmises_par$vcov))
+  }
+  
+  
+  for(i in seq_along(cov)){
+    steps.avail <- steps.avail %>% mutate(rp = map(rp, function(d){
+      extract_covariates(d,cov[[i]])}))
+  }
+  
+  steps.avail <- steps.avail %>% dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), rp) %>%  
+    unnest(cols= c(rp))  
+  
+  # Important: the `step_id_` will have erroneously similar names across individuals. We will change the name here.
+  steps.avail$step_id_ <- paste(steps.avail[[id.col.name]], steps.avail$step_id_, sep="_")
+    
+  
+  # Get the log sl and cos ta. And numeric case for poisson distribution
+  steps.avail$ln_sl <- log(steps.avail$sl_)
+  steps.avail$cos_ta <- cos(steps.avail$ta_)
+  steps.avail$case_num <- as.numeric(steps.avail$case_)
+  
+
+  return(list(steps.id = steps.id, steps.avail = steps.avail, gamma_par=gamma_par, vonmises_par=vonmises_par))
+}
+```
+
+Let's test our prep data function on the small simulation. We use 10 available per used locations
+
+```{r}
+sim.prep <- prep.data.ssf.sim(sim_t, cov=list(cov1 = cov1), n.avail = 10)
+
+sim.prep.sf <- st_as_sf(sim.prep$steps.avail, coords = c("x1_", "y2_"), remove=FALSE)
+ggplot() +
+  geom_spatraster(data = cov1) + 
+  geom_sf(data = sim.prep.sf, aes(col= as.factor(case_)), lwd = 0.4) +
+  geom_sf(data = sim.prep.sf %>% filter(case_), aes(col= as.factor(case_)), lwd = 0.4) +
+  coord_sf(expand = FALSE) 
+```
+
+# Fit model function
+
+Function to fit SSF.
+
+```{r}
+fit.poisson.rs <- function(formula, data, 
+                           start = list(theta = log(1e3)), map = list(theta=factor(NA))){
+  ssf <- glmmTMB(formula, family = poisson, 
+                 data = data, start = start, map = map)
+  return(ssf)
+}
+```
+
+Test fit function on small simulation
+
+```{r}
+sim.fit <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 + cov1:proxy +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = sim.prep$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map=list(theta=factor(c(NA,1))))
+summary(sim.fit)
+```
+
+
+We need a function to convert the estimated movement kernel parameters returned by the model above to the actual values of the estimated shape and scale parameters of the gamma distribution for the step lengths and the concentration parameter of the von Mises distribution for the turning angles. The idea is that the model above, allows for these distributions to be affected by the selection. For more information on this, please see Avgar et al. (2015) and Fieberg et al. (2021), including Appendix C.
+
+```{r}
+# gamma.par <- sim.prep$gamma_par
+# von.mises.par <- sim.prep$vonmises_par
+# model <- sim.fit
+par.adj <- function(gamma.par, von.mises.par, model){
+# gamma.par: parameters estimated from the data itself
+# model: fitted ssf
+  
+  ## Gamma step length distribution
+  # Shape parameter after the selection for covariate(s) is accounted for
+  ssf_gamma_shape <- gamma.par$params$shape + summary(model)$coef$cond["ln_sl",1]
+  # Scale parameter after the selection for covariate(s) is accounted for
+  ssf_gamma_scale <- 1/(1/gamma.par$params$scale - summary(model)$coef$cond["sl_",1])
+  # Mean of gamma is shape*scale
+  ssf_gamma_mean <- ssf_gamma_shape*ssf_gamma_scale
+  
+  
+  ## von Mises turning angle distribution
+  # Concentration parameter after selection for covariate(s) is accounted for
+  ssf_vonMises_kappa <- von.mises.par$params$kappa + summary(model)$coef$cond["cos_ta",1]
+
+  
+  est.par <- list(gamma.shape = ssf_gamma_shape,
+                  gamma.scale = ssf_gamma_scale,
+                  gamma.mean = ssf_gamma_mean,
+                  von.mises.kappa= ssf_vonMises_kappa)
+  
+  
+  return(est.par)
+  
+}
+```
+
+Test out the function that uses the estimated paramaters based on the observed step length and the fitted coefficients to calculate the estimate selection-free movement parameters.
+
+```{r}
+sim.mov.par <- par.adj(sim.prep$gamma_par, sim.prep$vonmises_par, sim.fit)
+```
+
+Compare simulated to estimated parameters
+
+```{r}
+# Movement-free selection parameters
+betas_sim.test # Simulated
+summary(sim.fit)$coef$cond[c("cov1", "cov1:proxy"),]
+# Selection-free movement-kernel parameters
+mov.par_sim.test # Simulated
+sim.mov.par # Estimated
+```
+
+Looks ok for now.
+
+Let's also try it with a model without a relationship with health proxy and covariates.
+
+```{r}
+set.seed(9876)
+proxy.n.0 <- rep(5, 5)
+cl <- makeCluster(n.cores)
+
+sim.t.0 <- ssf_sim(betas = c(1,0), mov.par = mov.par_sim.test, val.proxy =  c(0, 0, 0), 
+                 proxy.n = proxy.n.0, n.steps = 100, m = "proxy_not_in_sel")
+
+stopCluster(cl)
+```
+
+
+```{r}
+sim.prep.0 <- prep.data.ssf.sim(sim.t.0, cov=list(cov1 = cov1), n.avail = 30)
+sim.fit.0 <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = sim.prep.0$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map=list(theta=factor(c(NA,1))))
+sim.mov.par.0 <- par.adj(sim.prep.0$gamma_par, sim.prep.0$vonmises_par, sim.fit.0)
+# Movement-free selection parameters
+summary(sim.fit.0)$coef$cond["cov1",]
+# Selection-free movement-kernel parameters
+mov.par_sim.test # Simulated
+sim.mov.par.0 # Estimated
+```
+
+Looks ok.
+
+# Simulations 
+
+Basic set up for all simulations, except if otherwise stated.
+
+For all scenarios, we simulate 30 individuals, for movement path with 100 steps, with 100 simulations per scenarios, and 30 available points per step. In all scenarios, the selection-free movement kernels are simulated using a gamma distribution with shape and scale parameters equal 1 for the step lengths and a von Mises distribution with kappa equal 1 for the turning angles (by default the mean is 0).
+
+```{r}
+# Number of individuals
+n <- 30
+# Number of steps per individual
+n.steps <- 100
+# Number of simulations per scenario
+n.sim <- 100
+# Number of available points per used points
+n.avail <- 30
+# Movement kernel parameter
+mov.sc <- list(shape = 1, scale = 1, kappa = 1) # Shape, scale, kappa
+```
+
+
+## Baseline check: verify that we can recover what we should when health/fitness proxy does not alter selection
+
+Here, we verify that the baseline model, which does not include the interaction with the health/fitness proxy, returns unbiased results when there are no difference between individuals. These results are not presented in the main text, we are just verifying that the biases found in the scenarios presented in the main text are linked to the individual differences in health/fitness not a problem with the baseline model.
+
+We simulate location data based on SSF without any health or fitness proxy, and make sure we recover parameter estimates.
+
+Here we simulate a SSF where there is an increase in selection associated with cov1 ($\beta_1 = 0.5$), but no relationship with health proxy ($beta_2 = 0$). The health proxy values will all be 0.
+
+```{r ssf.sc1.settings}
+betas.sc1 <- c(0.5, 0)
+val.proxy.sc1 <- c(-1, 0, 1)
+
+sim.res.sc1 <- as.data.frame(matrix(nrow = n.sim, ncol = 16))
+colnames(sim.res.sc1) <- c("sim", "beta_cov_sim", "beta_cov_est", "beta_cov_SE", 
+                           "beta_cov_95LCI", "beta_cov_95UCI", "beta_cov_in_95CI",
+                           "gamma_shape_sim", "gamma_scale_sim", "vonMises_kappa_sim", 
+                           "gamma_shape_est", "gamma_scale_est", "vonMises_kappa_est", 
+                           "converg.mess", "AICc_baseline", "AICc_new")
+
+```
+
+**This will take mins to hours to run on most computers.** We provided the file to load below.
+
+```{r, cache = TRUE}
+set.seed(1234567)
+cl <- makeCluster(n.cores)
+t0 <- Sys.time()
+for(s in 1:n.sim){
+  sim.res.sc1[s, "sim"] <- s
+  sim.res.sc1[s, "beta_cov_sim"] <- betas.sc1[1]
+  sim.res.sc1[s, "gamma_shape_sim"] <- mov.sc$shape
+  sim.res.sc1[s, "gamma_scale_sim"] <- mov.sc$scale
+  sim.res.sc1[s, "vonMises_kappa_sim"] <- mov.sc$kappa
+  cov.s <- simulate_data(study.area, n = 1, scale = 0.9, sd = 0.1)
+  sim.s <- ssf_sim(betas = betas.sc1, mov.par = mov.sc, val.proxy = val.proxy.sc1, 
+                 proxy.n = rep(n/3, 3), # balanced ratio
+                 n.steps = n.steps, m = "proxy_not_in_sel")
+  
+  # sim.s.sf <- st_as_sf(sim.s, coords = c("x_", "y_"), remove=FALSE)
+  # ggplot() + geom_spatraster(data = cov1) +
+  #   geom_sf(data = sim.s.sf, aes(col= as.factor(proxy)), lwd = 0.4) +
+  #   coord_sf(expand = FALSE)
+  
+  all.s <- prep.data.ssf.sim(sim.s, cov = list(cov1 = cov1), n.avail = n.avail)
+  fit.s <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = all.s$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map = list(theta = factor(c(NA,1)))) 
+  sim.res.sc1[s, c("beta_cov_est", "beta_cov_SE")] <- summary(fit.s)$coef$cond[c("cov1"), c("Estimate", "Std. Error")]
+  sim.res.sc1[s, c("beta_cov_95LCI", "beta_cov_95UCI")] <- confint(fit.s, "cov1")[,1:2]
+  par.s <- par.adj(all.s$gamma_par, all.s$vonmises_par, fit.s)
+  sim.res.sc1[s, "gamma_shape_est"] <- par.s$gamma.shape
+  sim.res.sc1[s, "gamma_scale_est"] <- par.s$gamma.scale
+  sim.res.sc1[s, "vonMises_kappa_est"] <- par.s$von.mises.kappa
+  sim.res.sc1[s, "converg.mess"] <- fit.s$fit$convergence # 0 means that the model converged
+  sim.res.sc1[s, "AICc_baseline"] <- AICc(fit.s)
+  
+  # New model
+  fit.new.s <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 + cov1:proxy +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = all.s$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map=list(theta=factor(c(NA,1))))
+    sim.res.sc1[s, "AICc_new"] <- AICc(fit.new.s)
+}
+Sys.time() - t0 
+# Check if in CI
+sim.res.sc1$beta_cov_in_95CI <- sim.res.sc1$beta_cov_95LCI <= sim.res.sc1$beta_cov_sim & 
+  sim.res.sc1$beta_cov_sim <= sim.res.sc1$beta_cov_95UCI
+
+# Look at AICc difference,  new model (wrong model, more complex) - baseline model (good model)
+sim.res.sc1$deltaAICc <- sim.res.sc1$AICc_new - sim.res.sc1$AICc_baseline
+
+# Save file
+write.csv(sim.res.sc1, 
+          file = paste("sim.ssf.sc1_", format(Sys.time(), "%Y%m%d"), ".csv",
+                               sep=""), 
+          row.names = FALSE)
+stopCluster(cl)
+```
+
+
+```{r}
+sim.res.sc1 <- read.csv("sim.ssf.sc1_20250417.csv")
+head(sim.res.sc1)
+```
+
+
+Look that AICc would select the good model. Here the baseline model should have the lowest AICc, and thus the difference should be positive. Look at histogram.
+
+```{r}
+ggplot(data = sim.res.sc1) +
+  geom_histogram(aes(x=deltaAICc), bins=20) +
+  theme_bw() +
+  geom_vline(xintercept = 0)
+```
+
+How many are negative.
+
+```{r}
+sim.res.sc1 %>% filter(deltaAICc < 0) %>% nrow()
+```
+
+So we choose the wrong model 9% of the time.
+
+If we only select the new model if the difference is greater than 2 (i.e. 2 times the number of parameter difference, here 1).
+
+```{r}
+sim.res.sc1 %>% filter(deltaAICc < -2) %>% nrow()
+```
+
+So we choose the wrong model only 4% of the time (i.e. type I error rate is 4%). This may change with sample size. 
+
+Let's check the coverage for the habitat selection coefficient. It should be $\approx$ 95\%.
+
+```{r}
+sum(sim.res.sc1$beta_cov_in_95CI)/n.sim
+```
+
+97 \% is close to the 95\% coverage we expected.
+
+Let's look at the movement kernel parameters
+
+```{r}
+# Gamma shape
+ggplot(data = sim.res.sc1) +
+  geom_boxplot(aes(y = gamma_shape_est)) +
+  geom_hline(aes(yintercept = unique(gamma_shape_sim))) +
+  theme_bw()
+
+
+# Gamma scale
+ggplot(data = sim.res.sc1) +
+  geom_boxplot(aes(y = gamma_scale_est)) +
+  geom_hline(aes(yintercept = unique(gamma_scale_sim))) +
+  theme_bw()
+
+# von Mises kappa
+ggplot(data = sim.res.sc1) +
+  geom_boxplot(aes(y = vonMises_kappa_est)) +
+  geom_hline(aes(yintercept = unique(vonMises_kappa_sim))) +
+  theme_bw()
+```
+
+## Main scenarios: see what happens when individual differ, but the proxy is not included vs included
+
+Here, we will create simulations where an individual's health/fitness proxy value affects the selection. We will use these simulations to demonstrate that ignoring health/fitness proxies can bias our results. These are based on the resource selection function (RSF) scenarios, but are now looking at step selection function (SSF).
+
+We will look at two scenarios, which are the two SSF scenarios presented in the main text:
+
+**Scenario C** (sometimes referred as `sc2.c` in the code): There is a general trend towards selecting higher values of the environmental covariate, but those with higher health/fitness proxy value do so more strongly, and those with lower health/fitness proxy value (i.e., -1, see below) avoid areas with higher values of this environmental covariate. This scenario could represent lower health/fitness individuals being out-competed by individuals in better conditions, and have to go to lower quality habitat. In this case $\beta_{cov} = 0.5$ and $\beta_{cov,proxy} = 1$.
+
+**Scenario D** (sometimes referred as `sc2.d` in the code): Individuals do not generally select for higher or lower values of cov, but individual with higher fitness specifically avoid higher values while those of lower fitness do select theses areas.  In this case $\beta_{cov} = 0$ and $\beta_{cov,proxy} = -1$.
+
+
+For all scenarios, the proxy values can be either -1 (less healthy/fit than average), 0 (average individual), and 1 (more healthy/fit than average). We have sub-scenarios where we modify the ratio of individuals with each proxy values: i) 3:2:1 (more individual with proxy value of -1), ii) 1:1:1 (balanced), and iii) 1:2:3 (more individual with proxy value of 1). 
+
+
+
+```{r sc2_settings}
+# Two scenarios
+betas.sc2 <- matrix(c(0.5, 1, # Scenario C
+                      0, -1), # Scenario D
+                    nrow = 2, byrow=TRUE)
+
+val.proxy.sc2 <- c(-1, 0, 1)
+
+# Sub-scenarios
+# This work with n = 30
+proxy.sc2 <- rbind(c(n/6*3, n/6*2, n/6), # i
+                   c(n/6*2, n/6*2, n/6*2), # ii 
+                   c(n/6*1, n/6*2, n/6*3)) # iii
+colnames(proxy.sc2) <- c("n_m1", "n_0", "n_p1")
+
+# Table for results
+sim.res.sc2 <- as.data.frame(matrix(nrow = n.sim*nrow(proxy.sc2)*2, ncol = 32))
+colnames(sim.res.sc2) <- c("sim", "n_m1", "n_0", "n_p1", "cov.sim.index",
+                           "beta_cov_sim", "beta_cov_proxy_sim",
+                           "gamma_shape_sim", "gamma_scale_sim", "vonMises_kappa_sim",
+                           "beta_cov_est", "beta_cov_SE", 
+                           "beta_cov_95LCI", "beta_cov_95UCI", "beta_cov_in_95CI",
+                           "beta_cov_est_new", "beta_cov_SE_new", 
+                           "beta_cov_95LCI_new", "beta_cov_95UCI_new", "beta_cov_in_95CI_new",
+                           "beta_cov_proxy_est_new", "beta_cov_proxy_SE_new", 
+                           "beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new",
+                           "beta_cov_proxy_in_95CI_new",
+                           "gamma_shape_est", "gamma_scale_est", "vonMises_kappa_est",
+                           "converg_mess_baseline", "converg_mess_new", "AICc_baseline", "AICc_new")
+
+# Simulation ID
+sim.res.sc2[,"sim"] <- 1:(n.sim*nrow(betas.sc2)*nrow(proxy.sc2))
+
+# Index of covariate used 
+sim.res.sc2[,"cov.sim.index"] <- rep(1:n.sim, nrow(betas.sc2)*nrow(proxy.sc2))
+
+# Number of individuals (sub-scenarios)
+sim.res.sc2[, "n_m1"] <- rep(proxy.sc2[,"n_m1"], each = n.sim*nrow(betas.sc2))
+sim.res.sc2[, "n_0"] <- rep(proxy.sc2[,"n_0"], each = n.sim*nrow(betas.sc2))
+sim.res.sc2[, "n_p1"] <- rep(proxy.sc2[,"n_p1"], each = n.sim*nrow(betas.sc2))
+
+# Betas (scenarios)
+sim.res.sc2[, "beta_cov_sim"] <- rep(betas.sc2[,1], each = n.sim)
+sim.res.sc2[, "beta_cov_proxy_sim"] <- rep(betas.sc2[,2], each = n.sim)
+
+# Movement kernel (scenarios)
+sim.res.sc2[, "gamma_shape_sim"] <- mov.sc$shape
+sim.res.sc2[, "gamma_scale_sim"] <- mov.sc$scale
+sim.res.sc2[, "vonMises_kappa_sim"] <- mov.sc$kappa
+
+# As factor
+sim.res.sc2$beta_sim_factor <- paste(sim.res.sc2$beta_cov_sim, sim.res.sc2$beta_cov_proxy_sim)
+sim.res.sc2$proxy_factor <- factor(paste("-1: ", sim.res.sc2$n_m1, 
+                                        ", 0: ", sim.res.sc2$n_0, 
+                                        ", +1: ", sim.res.sc2$n_p1, sep = ""),
+                                      levels = c("-1: 15, 0: 10, +1: 5", 
+                                                 "-1: 10, 0: 10, +1: 10", 
+                                                 "-1: 5, 0: 10, +1: 15"))
+
+```
+
+
+**This will take hours to run on most computers.** We provided the file to load below.
+
+```{r sc2.sim, cache = TRUE}
+set.seed(1234567)
+cl <- makeCluster(n.cores)
+t0 <- Sys.time()
+for(s in 1:(n.sim*3*2)){
+  cov.s <- simulate_data(study.area, n = 1, scale = 0.9, sd = 0.1)
+  
+  beta.s <- as.numeric(sim.res.sc2[s,c("beta_cov_sim", "beta_cov_proxy_sim")])
+  mov.s <- list(shape = sim.res.sc2[s,"gamma_shape_sim"], 
+                scale = sim.res.sc2[s,"gamma_scale_sim"], 
+                kappa = sim.res.sc2[s,"vonMises_kappa_sim"])
+  proxy.n.s <- as.numeric(sim.res.sc2[s, c("n_m1", "n_0", "n_p1")])
+  
+  sim.s <- ssf_sim(betas = beta.s, 
+                   mov.par = mov.s, 
+                   val.proxy = val.proxy.sc2, 
+                   proxy.n = proxy.n.s, n.steps = n.steps, m = "proxy_in_sel")
+  
+  all.s <- prep.data.ssf.sim(tracks = sim.s, cov = list(cov1 = cov1), n.avail = n.avail)
+  
+  
+  # Baseline model, exclude proxy
+  fit.s <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = all.s$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map = list(theta = factor(c(NA,1)))) 
+  
+  sim.res.sc2[s, c("beta_cov_est", "beta_cov_SE")] <- 
+    summary(fit.s)$coef$cond[c("cov1"), c("Estimate", "Std. Error")]
+  sim.res.sc2[s, c("beta_cov_95LCI", "beta_cov_95UCI")] <- 
+    confint(fit.s, "cov1")[,1:2]
+  par.s <- par.adj(all.s$gamma_par, all.s$vonmises_par, fit.s)
+  sim.res.sc2[s, "gamma_shape_est"] <- par.s$gamma.shape
+  sim.res.sc2[s, "gamma_scale_est"] <- par.s$gamma.scale
+  sim.res.sc2[s, "vonMises_kappa_est"] <- par.s$von.mises.kappa
+  sim.res.sc2[s, "converg_mess_baseline"] <- fit.s$fit$convergence # 0 = model converged
+  sim.res.sc2[s, "AICc_baseline"] <- AICc(fit.s)
+  
+  # New model with proxy
+  fit.new.s <- fit.poisson.rs(formula = case_num ~ -1 + 
+                                    cov1 + cov1:proxy +
+                                    sl_ + ln_sl + cos_ta + 
+                                    (1 | step_id_) +
+                                    (0 + cov1 | ID), 
+                                  data = all.s$steps.avail, 
+                                  start = list(theta = c(log(1e3),0)),
+                                  map=list(theta=factor(c(NA,1))))
+  
+  sim.res.sc2[s, c("beta_cov_est_new", "beta_cov_SE_new")] <- 
+    summary(fit.new.s)$coef$cond[c("cov1"), c("Estimate", "Std. Error")]
+  sim.res.sc2[s, c("beta_cov_proxy_est_new", "beta_cov_proxy_SE_new")] <- 
+    summary(fit.new.s)$coef$cond[c("cov1:proxy"), c("Estimate", "Std. Error")]
+  
+  sim.res.sc2[s, c("beta_cov_95LCI_new", "beta_cov_95UCI_new")] <- 
+    confint(fit.new.s, "cov1")[,1:2]
+  sim.res.sc2[s, c("beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new")] <- 
+    confint(fit.new.s, "cov1:proxy")[,1:2]
+  par.new.s <- par.adj(all.s$gamma_par, all.s$vonmises_par, fit.new.s)
+  sim.res.sc2[s, "gamma_shape_est_new"] <- par.new.s$gamma.shape
+  sim.res.sc2[s, "gamma_scale_est_new"] <- par.new.s$gamma.scale
+  sim.res.sc2[s, "vonMises_kappa_est_new"] <- par.new.s$von.mises.kappa
+  sim.res.sc2[s, "converg_mess_new"] <- fit.new.s$fit$convergence # 0 = model converged
+  sim.res.sc2[s, "AICc_new"] <- AICc(fit.new.s)
+
+  
+}
+Sys.time() - t0 
+
+### Check if in CI
+
+# Baseline
+sim.res.sc2$beta_cov_in_95CI <- sim.res.sc2$beta_cov_95LCI <= sim.res.sc2$beta_cov_sim & 
+  sim.res.sc2$beta_cov_sim <= sim.res.sc2$beta_cov_95UCI
+
+# New model with proxy
+sim.res.sc2$beta_cov_in_95CI_new <- sim.res.sc2$beta_cov_95LCI_new <= 
+  sim.res.sc2$beta_cov_sim & 
+  sim.res.sc2$beta_cov_sim <= sim.res.sc2$beta_cov_95UCI_new
+
+sim.res.sc2$beta_cov_proxy_in_95CI_new <- sim.res.sc2$beta_cov_proxy_95LCI_new <= 
+  sim.res.sc2$beta_cov_proxy_sim & 
+  sim.res.sc2$beta_cov_proxy_sim <= sim.res.sc2$beta_cov_proxy_95UCI_new
+
+# Look at AICc difference,  here  baseline model (wrong model, too simple) - new model (good model)
+sim.res.sc2$deltaAICc <- sim.res.sc2$AICc_baseline - sim.res.sc2$AICc_new
+
+
+
+# Save file
+write.csv(sim.res.sc2, 
+          file = paste("sim.ssf.sc2_", format(Sys.time(), "%Y%m%d"), ".csv",
+                               sep=""), 
+          row.names = FALSE)
+stopCluster(cl)
+```
+
+```{r}
+#sim.res.sc2 <- read.csv("sim.ssf.sc2_20250417.csv")
+sim.res.sc2$proxy_factor <- factor(sim.res.sc2$proxy_factor,
+                                      levels = c("-1: 15, 0: 10, +1: 5", 
+                                                 "-1: 10, 0: 10, +1: 10", 
+                                                 "-1: 5, 0: 10, +1: 15"))
+```
+
+Above was the previous more detailed names. New labels below.
+
+```{r}
+sim.res.sc2$proxy_sf <-  factor(paste(sim.res.sc2$n_m1,
+                                      sim.res.sc2$n_0,
+                                      sim.res.sc2$n_p1, sep = ":"),
+                                      levels = c("15:10:5", 
+                                                 "10:10:10", 
+                                                 "5:10:15"))
+```
+
+```{r}
+head(sim.res.sc2)
+```
+
+Look that AICc would select the good model. Here the new model should have the lowest AICc, thus we calculated the difference by substrating the AICc of the baseline model from the AICc of the new model. The difference should be positive. Look at histogram.
+
+```{r}
+ggplot(data = sim.res.sc2) +
+  geom_histogram(aes(x=deltaAICc), bins=20) +
+  theme_bw() +
+  geom_vline(xintercept = 0)
+```
+
+How many are negative.
+
+```{r}
+sim.res.sc2 %>% filter(deltaAICc < 0) %>% nrow()
+```
+
+So we choose the wrong model 0% of the time.
+
+If we only select the new model if the difference is greater than 2 (i.e. 2 times the number of parameter difference, here 1).
+
+```{r}
+sim.res.sc2 %>% filter(deltaAICc < -2) %>% nrow()
+```
+
+So we choose the wrong model only 0% of the time (i.e. type II error rate is 0%, so power of 100%). The power will change with sample size, etc.
+
+
+
+There are many warnings (not shown in compiled version). Check convergence messages and if there are any problem with estimating the SE
+
+```{r}
+# How many have convergence problems - baseline
+sum(sim.res.sc2[,"converg_mess_baseline"] != 0)
+sum(is.na(sim.res.sc2[,"beta_cov_SE"]))
+which(is.na(sim.res.sc2[,"beta_cov_SE"]))
+
+# How many have convergence problems - new
+sum(sim.res.sc2[,"converg_mess_new"] != 0)
+sum(is.na(sim.res.sc2[,"beta_cov_SE_new"]))
+which(is.na(sim.res.sc2[,"beta_cov_SE_new"]))
+sum(is.na(sim.res.sc2[,"beta_cov_proxy_SE_new"]))
+which(is.na(sim.res.sc2[,"beta_cov_proxy_SE_new"]))
+```
+
+There are no convergence message, and none of the simulations returned NAs for the SEs.
+
+Check if estimate is in 95 CI, so that we can calculate coverage.
+
+In case some random seeds returned NA for SE, we remove those simulations before calculating coverage.
+
+```{r}
+# Model without proxy
+sum(sim.res.sc2$beta_cov_in_95CI, na.rm = TRUE)/(nrow(sim.res.sc2) -
+                                                   sum(is.na(sim.res.sc2[,"beta_cov_SE"])))
+
+# Model with proxy - general selection
+sum(sim.res.sc2$beta_cov_in_95CI_new, na.rm = TRUE)/(nrow(sim.res.sc2) -
+                                                      sum(is.na(sim.res.sc2[,"beta_cov_SE_new"])))
+
+# Model with proxy - relationship with proxy
+sum(sim.res.sc2$beta_cov_proxy_in_95CI_new, na.rm = TRUE)/(nrow(sim.res.sc2) - sum(is.na(sim.res.sc2[,"beta_cov_proxy_SE_new"])))
+
+```
+
+As expected when we ignore the relationship with the proxy, the true underlying relationship is often not captured (poor coverage), but if we fit the good model we get a coverage of about 95%. 
+
+In scenario C, which has a baseline selection for the covariate of 0.5 and a 1:1 relationship with the health/fitness proxy, the environmental covariate is important for animal, especially for those that are with good "health". Let's see how often the baseline model, which does not include the relationship with the health/fitness proxy, would conclude that this environmental covariate is not important. To do so, we will calculate how many confidence intervals (CIs) from the estimated coefficient from the baseline model overlap with 0.
+
+
+```{r}
+res.sc2.c <- subset(sim.res.sc2, beta_cov_sim == 0.5 & beta_cov_proxy_sim == 1) 
+res.sc2.c$zero_in_CI <- res.sc2.c$beta_cov_95LCI <= 0 & res.sc2.c$beta_cov_95UCI >= 0
+
+res.sc2.c %>% group_by(proxy_factor)  %>% summarise(n = sum(zero_in_CI))
+```
+
+While the CIs of simulations where there are more individuals in good condition or a balanced number of individuals across condition rarely overlap with 0, the CIs of 93\% of the simulations where there are more individuals in poor condition overlap with 0.
+
+Scenario D has a baseline selection of the covariate of 0 and a negative relationship with the health/fitness proxy, meaning that in general the animal does not select for the environmental covariate and that healthy animals avoid it. Here only individuals in poor condition select it. To see whether ignoring the health/fitness proxy could mislead us to think that this environmental covariate is important for the health of animal, we look at how many CI are fully above zero (saying that it select the covariate).
+
+```{r}
+res.sc2.d <- subset(sim.res.sc2, beta_cov_sim == 0 & beta_cov_proxy_sim == -1) 
+res.sc2.d$positive_CI <- res.sc2.d$beta_cov_95LCI > 0 & res.sc2.d$beta_cov_95UCI > 0
+
+res.sc2.d %>% group_by(proxy_factor)  %>% summarise(n = sum(positive_CI, na.rm=TRUE))
+```
+
+While it's not an issue when there are more individuals that are healthy or when there is a balanced number of individuals in each health category, 55% of the simulations with more individuals in poor health would show selection of this covariate (which is avoided by the healthy animals!).
+
+Let's look at coefficient estimates.
+
+```{r}
+col.base.method <- "black"
+col.new.method <- "hotpink"
+# sim.res <- sim.res.sc2
+# beta_scenario <- "0.5 1"
+plot.sim.boxplot <- function(sim.res, beta_scenario, par.name = c("beta_cov_sim", "beta_cov_est", "beta_cov_est_new"),
+                             y.title = expression(hat(beta)[1]), x.title = "Ratio of individuals (Inferior:Average:Superior)"){
+  subset.sc <- subset(sim.res, beta_sim_factor == beta_scenario)
+  beta.sc <- subset.sc %>% pull(!! sym(par.name[1])) %>% unique()
+  p <- ggplot() +
+    geom_boxplot(data = subset.sc, aes(x= proxy_sf, y = !! sym(par.name[2])), 
+                 width = 0.25, position= position_nudge(x=-.15), 
+                 col = col.base.method, fill = alpha(col.base.method, 0.5)) +
+    geom_boxplot(data = subset.sc, aes(x= proxy_sf, y= !! sym(par.name[3])), 
+                 width = 0.25, position= position_nudge(x=+.15),
+                 col = col.new.method, fill = alpha(col.new.method, 0.5)) +
+    geom_hline(aes(yintercept = beta.sc)) +
+    xlab(x.title) + ylab(y.title) +
+    theme(panel.border = element_rect(fill = NA, linewidth = 0.5)) +
+    guides(Without.proxy = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
+                                                  gp = grid::gpar(fill = col.base.method, col=NA)), 
+                                 title = "Ignoring fitness proxy", order = 1, 
+                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                               legend.position = "top")),
+           With.proxy = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = col.new.method, col=NA)), 
+                                 title = "Including fitness proxy", order = 2, 
+                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                               legend.position = "top"))) +
+        theme_classic() + 
+    theme(legend.position = "top",
+          axis.title = element_text(size = axis.title.size),
+          axis.text = element_text(size = axis.label.size),
+          panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          axis.line = element_line(colour = 'black', linewidth = 0.1),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+          plot.margin = unit(c(1.05, 1.15, 0, 1), 'lines'))
+  return(p)
+}
+```
+
+```{r}
+# Scenarios
+plot.2.c <- plot.sim.boxplot(sim.res.sc2, "0.5 1")
+plot.2.c
+plot.2.d <- plot.sim.boxplot(sim.res.sc2, "0 -1")
+plot.2.d
+```
+
+```{r}
+legend.plot.rel <- as_ggplot(get_legend(plot.2.c)) 
+```
+
+```{r Fig_SupMat2_ssf_sim_res, fig.height=6, fig.width=6, dev = 'png', cache = TRUE}
+ggarrange(legend.plot.rel,
+  ggarrange(plot.2.c, plot.2.d,  legend = "none",
+          labels = c("A", "B"), label.x = rep(0.11,4), label.y = rep(1, 4), 
+              font.label = list(size = 8, face="plain"),
+          nrow = 2, ncol = 1), nrow=2, ncol=1, heights = c(0.2,0.8))
+```
+
+Here we also look at the movement kernel paramaters.
+
+
+```{r}
+# Scenarios
+plot.2.c.gamma.shape <- plot.sim.boxplot(sim.res.sc2, "0.5 1", 
+                             par.name = c("gamma_shape_sim", "gamma_shape_est", "gamma_shape_est_new"),
+                             y.title = expression(hat(alpha)[1]),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.c.gamma.shape
+
+plot.2.c.gamma.scale <- plot.sim.boxplot(sim.res.sc2, "0.5 1", 
+                             par.name = c("gamma_scale_sim", "gamma_scale_est", "gamma_scale_est_new"),
+                             y.title = expression(hat(alpha)[2]),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.c.gamma.scale
+
+plot.2.c.vonMises.kappa <- plot.sim.boxplot(sim.res.sc2, "0.5 1", 
+                             par.name = c("vonMises_kappa_sim", "vonMises_kappa_est", "vonMises_kappa_est_new"),
+                             y.title = expression(hat(kappa)),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.c.vonMises.kappa
+
+
+# Scenarios
+plot.2.d.gamma.shape <- plot.sim.boxplot(sim.res.sc2, "0 -1", 
+                             par.name = c("gamma_shape_sim", "gamma_shape_est", "gamma_shape_est_new"),
+                             y.title = expression(hat(alpha)[1]),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.d.gamma.shape
+
+plot.2.d.gamma.scale <- plot.sim.boxplot(sim.res.sc2, "0 -1", 
+                             par.name = c("gamma_scale_sim", "gamma_scale_est", "gamma_scale_est_new"),
+                             y.title = expression(hat(alpha)[2]),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.d.gamma.scale
+
+plot.2.d.vonMises.kappa <- plot.sim.boxplot(sim.res.sc2, "0 -1", 
+                             par.name = c("vonMises_kappa_sim", "vonMises_kappa_est", "vonMises_kappa_est_new"),
+                             y.title = expression(hat(kappa)),
+                             x.title = "Ratio (Inferior:Average:Superior)")
+plot.2.d.vonMises.kappa
+
+
+```
+
+```{r Fig_SupMat3_ssf_sim_res_mov_kernel, fig.height=6, fig.width=6, dev = 'png', cache = TRUE}
+ggarrange(legend.plot.rel,
+  ggarrange(plot.2.c.gamma.shape, plot.2.d.gamma.shape, 
+            plot.2.c.gamma.scale, plot.2.d.gamma.scale,
+            plot.2.c.vonMises.kappa, plot.2.d.vonMises.kappa, 
+            legend = "none",
+          labels = c("A", "B", "C", "D", "E", "F"), label.x = rep(0.09, 6), label.y = rep(0.95, 6), 
+              font.label = list(size = 8, face="plain"),
+          nrow = 3, ncol = 2), nrow=2, ncol=1, heights = c(0.07,0.93))
+```
+
+
+# Litterature cited
+
+Avgar, T., Lele, S. R., Keim, J. L., & Boyce, M. S. (2017). Relative selection strength: Quantifying effect size in habitat‐and step‐selection inference. Ecology and Evolution, 7, 5322-5330. https://doi.org/10.1002/ece3.3122
+
+Fieberg, J., Signer, J., Smith, B., & Avgar, T. (2021). A 'How to' guide for interpreting parameters in habitat-selection analyses. Journal of Animal Ecology, 90, 1027-1043. https://doi.org/10.1111/1365-2656.13441
+
+
