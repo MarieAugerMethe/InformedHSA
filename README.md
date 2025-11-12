@@ -107,3 +107,10 @@ with `1_rsf_simulations.Rmd` containing the code and `1_rsf_simulations.html` be
 
 - The second set of files are for the step selection function (SSF) simulations, 
 with `2_ssf_simulations.Rmd` containing the code and `2_ssf_simulations.html` being a compiled version of the code.
+
+## Case study 1: murres
+
+The code to reproduce the analyses, tables, and figures associated with case study 1, 
+which is focused on thick-billed murres, is available in `3_rsf_murre.Rmd`. 
+A compiled version is also available in `3_rsf_murre.html`.
+
