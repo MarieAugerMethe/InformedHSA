@@ -87,7 +87,9 @@ The Easting and Northing values in meters and the coordinate system is EPSG:3261
 3. `Bylot_UTM`: folder that contains the files needed for the `Bylot_UTM.shp` shapefile. 
 This shapefile contains the land layer around Bylot Island, Nunavut, Canada. 
 The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
-We use here the full (f) resolution.
+We use here the full (f) resolution. 
+We have simply clipped the original file to be focussed on the area around the study site 
+and have transform the coordinate system to be EPSG:32617 (WGS 84 / UTM zone 17N).
 
 # Code
 

@@ -3,8 +3,11 @@
 .RData
 .Ruserdata
 
-
 *.Rproj
+
+# Cache and figures
+*cache/*
+*files/*
 
 
 # Ignore macOS system files
