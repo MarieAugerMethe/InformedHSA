@@ -134,7 +134,8 @@ We clipped it to be the area around the study area and changed the projection to
 Using the R package `terra` we filled missing values on the coast using:
 
 ```
-# original humanImpact is the clipped and transformed layer from Mu et al. available via the link above
+# Original humanImpact is the clipped and transformed version of
+# the layer available via the link above.
 humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
 humanImpact <- mask(humanImpact, land)
 # land is the layer found in the `bc_UTM.shp` shapefile
