@@ -13,26 +13,23 @@ knitr::opts_chunk$set(echo = TRUE)
 
 1. Use simulations to show that ignoring health and/or fitness proxies can bias selection analysis.
 2. Check that proposed methodology works.
-3. Small technical check, see if I need random effect on intercept, when only 1 location as in the murre example.
+3. Additional small technical check: confirm that we need a random effect on intercept when there is only 1 location per individual (as in the murre example).
 
 # General set up
 
 ## Load packages
 
 ```{r packages, message=FALSE, warning=FALSE}
-library(terra) # for transforming raster into terra object for plotting
-library(tidyterra) # for easy plotting of raster
+library(terra) # for transforming rasters into terra objects for plotting
+library(tidyterra) # for easy plotting of rasters
 library(sf)
-library(fields) # Needed to simulate data with prioritizr
+library(fields) # to simulate data with prioritizr
 library(prioritizr) # to simulate Gaussian random fields
 library(tidyverse)
-
 library(ggpubr)
-
 library(amt) # to fit ssf
-#install.packages("glmmTMB",type="source") # If problems with TMB version
+#install.packages("glmmTMB", type="source") # If problems with TMB version
 library(glmmTMB) # to fit rsf
-
 library(MuMIn) # for AICc
 ```
 
@@ -43,7 +40,7 @@ library(MuMIn) # for AICc
 proxy.min.col <- "#d73027"
 proxy.mid.col <- "#ffffbf"
 proxy.max.col <- "#4575b4"
-# Size of label
+# Size of title/labels
 axis.title.size <- rel(1)
 axis.label.size <- rel(0.8)
 ```
@@ -54,7 +51,7 @@ axis.label.size <- rel(0.8)
 
 Simulate a spatial covariate using a Gaussian random field.
 
-First, we will define the size of our study area, and create a base raster.
+First, we will define the size of our study area and create a base raster.
 
 ```{r study_area, message = FALSE}
 study.area <- terra::rast(
@@ -79,12 +76,11 @@ set.seed(1987)
 cov1 <- simulate_data(study.area, n = 1, scale = 0.9, sd = 0.1)
 # Plot spatial covariate
 ggplot() + geom_spatraster(data = cov1) + coord_sf(expand = FALSE)
-
 ```
 
 ## Function to sample locations based on Resource Selection Function (RSF)
 
-Create a function that select `n.points` number of points. We assume that the whole study area is available and that the selection is proportional to $\text{exp}((\beta_1 + \beta_2 h_n)c_i)$, where $h_n$ is the health/fitness proxy value for individual $n$. We simulate for `n` individuals.
+Create a function that selects `n.points` number of points. We assume that the whole study area is available and that the selection is proportional to $\text{exp}((\beta_1 + \beta_2 h_n)x_i)$, where $h_n$ is the health/fitness proxy value for individual $n$.
 
 ```{r sim.rsf.fx, cache=TRUE}
 sim.rsf <- function(n, n.points, proxy, cov, betas){
@@ -98,13 +94,12 @@ sim.rsf <- function(n, n.points, proxy, cov, betas){
     used <- rbind(used, used.i)
   }
   
-  
   return(used)
 }
 
 ```
 
-Test simulation function.
+Test the simulation function.
 
 ```{r sim.fx.test, cache=TRUE}
 n <- 20 # Number of individuals
@@ -122,8 +117,10 @@ sim.test <- sim.rsf(n, n.points, proxy, cov, betas.test)
 
 ggplot() + geom_spatraster(data = cov1) +
       geom_sf(data=sim.test, aes(col = proxy), size=0.5) + 
-      scale_color_gradient2(low=proxy.min.col, mid=proxy.mid.col, high= proxy.max.col,
-                      midpoint = mean(val.proxy), limit = range(val.proxy), na.value = NA) +
+      scale_color_gradient2(low=proxy.min.col, 
+                            mid=proxy.mid.col, high= proxy.max.col,
+                            midpoint = mean(val.proxy), limit = range(val.proxy), 
+                            na.value = NA) +
       coord_sf(expand = FALSE)
 ```
 
@@ -147,8 +144,8 @@ avail.rsf <- function(n.avail, study.area.sf, used.sf, cov){
     rsf.avail.sf[, cols[i]] <- rep(used.df[,cols[i]], each = n.avail)
   }
   
-  rsf.all.sf <- rbind(used.sf[, c("case_",cols)], 
-                      rsf.avail.sf[, c("case_",cols)])
+  rsf.all.sf <- rbind(used.sf[, c("case_", cols)], 
+                      rsf.avail.sf[, c("case_", cols)])
   
   # Extract covariates
   rsf.all.sf$cov <- unlist(terra::extract(cov, rsf.all.sf, ID=FALSE))
@@ -167,7 +164,7 @@ Muff et al. (2020) uses a standard deviation of 1000 for the random effect of th
 ```{r fit.rsf.fx}
 fit.rsf <- function(all.steps, formula.rsf, 
                     start = list(theta = c(log(10000), 0, 0)), 
-                    map = list(theta = factor(c(NA,1,NA)))){
+                    map = list(theta = factor(c(NA, 1, NA)))){
   
 
   # Weight for rsf. See Muff et al. 2020
@@ -179,7 +176,6 @@ fit.rsf <- function(all.steps, formula.rsf,
                      weights = weight)
   return(model.rsf)
 }
-
 ```
 
 Test the function.
@@ -218,13 +214,16 @@ n.avail <- 100
 
 ## Baseline check: verify that we can recover what we should when health/fitness proxie does not alter selection
 
-Here, we verify that the baseline model, which does not include the interaction with the health/fitness proxy, returns unbiased results when there are no difference between individuals. These results are not presented in the main text, we are just verifying that the biases found in the scenarios presented in the main text are linked to the individual differences in health/fitness, not a problem with the baseline model.
+Here, we verify that the baseline model, which does not include the interaction with the health/fitness proxy, returns unbiased results when there are no difference between individuals. We are primarily verifying that the biases found in the scenarios presented in the main text are linked to the individual differences in health/fitness, not a problem with the baseline model. We are also verifying whether the AICc would select the appropriate model.
 
 We simulate location data based on RSF without any health or fitness proxy, and make sure we recover parameter estimates.
 
+**This will take mins to hours to run on most computers.** We provided a .csv file with the results in the repository that can be loaded below.
+
 ```{r, cache = TRUE, warning = FALSE}
-betas <- c(0.5, 0) # Here the beta associated with the proxy is 0 no effect
-val.proxy <- rep(c(-1,0,1), each = n/3) # balance ratio
+t0 <- Sys.time()
+betas <- c(0.5, 0) # Here the beta associated with the proxy is 0 (no effect)
+val.proxy <- rep(c(-1,0,1), each = n/3) # balance ratio. Irrelevant since beta_2 = 0
 
 
 sim.res.sc1 <- as.data.frame(matrix(nrow = n.sim, ncol = 10))
@@ -252,6 +251,8 @@ for(s in 1:n.sim){
   sim.res.sc1[s, "AICc_new"] <- AICc(fit.s.n)
 }
 
+Sys.time() - t0
+
 sim.res.sc1$beta_cov_in_95CI <- sim.res.sc1$beta_cov_95LCI <= sim.res.sc1$beta_cov_sim & 
   sim.res.sc1$beta_cov_sim <= sim.res.sc1$beta_cov_95UCI
 
@@ -267,50 +268,77 @@ write.csv(sim.res.sc1,
 
 ```
 
-Look that AICc would select the good model. Here the baseline model should have the lowest AICc, and thus the difference should be positive. Look at histogram.
+
+There are some warning messages (not shown in compiled version). Let's check whether the models converged.
+
+To load the file we have created, uncomment the first line.
+
 
 ```{r}
-ggplot(data = sim.res.sc1) +
-  geom_histogram(aes(x=deltaAICc), bins=20) +
-  theme_bw() +
-  geom_vline(xintercept = 0)
+# sim.res.sc1 <- read.csv("sim.rsf.sc1_20251112.csv")
+# How many simulations did not converge properly.
+sum(sim.res.sc1$converg.mess != 0)
 ```
 
-How many are negative ?
+None of the simulations have a convergence message.
+
+Let's have a quick look at the results.
 
 ```{r}
-sim.res.sc1 %>% filter(deltaAICc < 0) %>% nrow()
+head(sim.res.sc1)
 ```
 
-So we choose the wrong model 12% of the time.
+At first glance, the results look good. 
 
-If we only select the new model if the difference is greater than 2 (i.e. 2 times the number of parameter difference, here 1).
+Let's look at our parameter estimates in more details.
 
 ```{r}
-sim.res.sc1 %>% filter(deltaAICc < -2) %>% nrow()
+plot.1 <- ggplot() +
+  geom_boxplot(data = sim.res.sc1, aes(y = beta_cov_est),
+               fill = alpha("black", 0.5)) +
+  geom_hline(aes(yintercept = betas[1])) +
+  xlab("") + ylab(expression(hat(beta)[1])) +
+  theme_classic() +
+  theme(panel.border = element_rect(fill=NA, linewidth = 0.5))
+  
+plot.1
 ```
 
-So we choose the wrong model only 2% of the time (i.e. type I error rate is 2%). This may change with sample size. 
+The parameter estimates are close to the true value.
+
+Let's further explore coverage.
 
 ```{r}
 # Coverage - should be ~ 95%
 sum(sim.res.sc1$beta_cov_in_95CI)/n.sim
 ```
 
-```{r}
-head(sim.res.sc1)
-```
 
-The results look good. 
-
-There are some warning messages (not shown in compiled version). Let's check whether the models converged.
+Verify that AICc would select the good model. Here the baseline model should have the lowest AICc, and thus the difference should be positive. Look at histogram.
 
 ```{r}
-# How many simulations did not converge properly.
-sum(sim.res.sc1$converg.mess != 0)
+ggplot(data = sim.res.sc1) +
+  geom_histogram(aes(x = deltaAICc), bins = 20) +
+  theme_bw() +
+  geom_vline(xintercept = 0)
 ```
 
-I think we are good.
+How many are negative?
+
+```{r}
+sim.res.sc1 %>% filter(deltaAICc < 0) %>% nrow()
+```
+
+Thus, AICc would choose the wrong model 12% of the time.
+
+Let's see the results if we only select the new model if the difference is greater than 2 (i.e., 2 times the number of parameter difference).
+
+```{r}
+sim.res.sc1 %>% filter(deltaAICc < -2) %>% nrow()
+```
+
+With this more conservative method, AICc would choose the wrong model only 2% of the time (i.e. type I error rate is 2%). This may change with sample size. 
+
 
 ## Main scenarios: see what happens when individual differ, but the proxy is not included vs included
 
@@ -318,12 +346,13 @@ Here, we will create simulations where an individual's health/fitness proxy valu
 
 We will look at two scenarios, which are the two RSF scenarios presented in the main text:
 
-**Scenario A** (sometimes referred as `sc2.a` in the code): There is a general trend towards selecting higher values of the environmental covariate, but those with higher health/fitness proxy value do so more strongly, and those with lower health/fitness proxy value (i.e., -1, see below) avoid areas with higher values of this environmental covariate. This scenario could represent lower health/fitness individuals being out-competed by individuals in better conditions, and have to go to lower quality habitat. In this case $\beta_{cov} = 0.5$ and $\beta_{cov,proxy} = 1$.
+**Scenario A** (sometimes referred as `sc2.a` in the code): There is a general trend towards selecting higher values of the environmental covariate, but those with higher health/fitness proxy value do so more strongly, and those with lower health/fitness proxy value (i.e., -1, see below) avoid areas with higher values of this environmental covariate. This scenario could represent lower health/fitness individuals being out-competed by individuals in better conditions, and have to go to lower quality habitat. In this case $\beta_1 = 0.5$ and $\beta_2 = 1$.
 
-**Scenario B** (sometimes referred as `sc2.b` in the code): Individuals do not generally select for higher or lower values of cov, but individual with higher fitness specifically avoid higher values while those of lower fitness do select theses areas.  In this case $\beta_{cov} = 0$ and $\beta_{cov,proxy} = -1$.
-
+**Scenario B** (sometimes referred as `sc2.b` in the code): Individuals do not generally select for higher or lower values of the covariate, but individuals with higher fitness specifically avoid higher values while those of lower fitness do select theses areas.  In this case $\beta_1 = 0$ and $\beta_2 = -1$.
 
 For all scenarios, the proxy values can be either -1 (less healthy/fit than average), 0 (average individual), and 1 (more healthy/fit than average). We have sub-scenarios where we modify the ratio of individuals with each proxy values: i) 3:2:1 (more individual with proxy value of -1), ii) 1:1:1 (balanced), and iii) 1:2:3 (more individual with proxy value of 1). 
+
+This code chunk defines the simulation settings.
 
 ```{r sc2_settings, cache = TRUE, warning=FALSE}
 # Two scenarios
@@ -346,10 +375,13 @@ colnames(sim.res.sc2) <- c("sim", "n_m1", "n_0", "n_p1", "cov.sim.index",
                            "beta_cov_95LCI", "beta_cov_95UCI", 
                            "beta_cov_in_95CI",
                            "beta_cov_est_new", "beta_cov_SE_new", 
-                           "beta_cov_95LCI_new", "beta_cov_95UCI_new", "beta_cov_in_95CI_new",
+                           "beta_cov_95LCI_new", "beta_cov_95UCI_new",
+                           "beta_cov_in_95CI_new",
                            "beta_cov_proxy_est_new", "beta_cov_proxy_SE_new", 
-                           "beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new", "beta_cov_proxy_in_95CI_new",
-                           "converg_mess_baseline", "converg_mess_new", "AICc_baseline", "AICc_new")
+                           "beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new",
+                           "beta_cov_proxy_in_95CI_new",
+                           "converg_mess_baseline", "converg_mess_new", 
+                           "AICc_baseline", "AICc_new")
 
 # Simulation ID
 sim.res.sc2[,"sim"] <- 1:(n.sim*nrow(betas.sc2)*nrow(proxy.sc2))
@@ -377,6 +409,8 @@ sim.res.sc2$proxy_factor <- factor(paste("-1: ", sim.res.sc2$n_m1,
 
 ```
 
+This code chunk simulates the covariate rasters.
+
 ```{r sc2_sim_cov, cache = TRUE, warning =FALSE}
 # Use same covariate layer for each scenario
 set.seed(123454321)
@@ -389,18 +423,22 @@ for(i in 2:n.sim){
 }
 ```
 
+This code chunk runs the simulations for both scenarios.
+
+**This will take mins to hours to run on most computers.** We provided a .csv file with the results in the repository that can be loaded below.
+
 ```{r sc2_sim, cache = TRUE, warning =FALSE}
 t0 <- Sys.time()
 set.seed(666555444)
 
 for(s in 1:nrow(sim.res.sc2)){
-  
   sim.s <- sim.rsf(n, n.points, 
                    proxy = c(rep(-1, sim.res.sc2[s, "n_m1"]),
                              rep(0, sim.res.sc2[s, "n_0"]),
                              rep(+1, sim.res.sc2[s, "n_p1"])), 
                    cov.sc2[[sim.res.sc2[s,"cov.sim.index"]]], 
-                   betas = as.numeric(sim.res.sc2[s, c("beta_cov_sim", "beta_cov_proxy_sim")]))
+                   betas = as.numeric(sim.res.sc2[s, c("beta_cov_sim",
+                                                       "beta_cov_proxy_sim")]))
   all.s <- avail.rsf(n.avail, study.area.sf, used.sf = sim.s, 
                      cov = cov.sc2[[sim.res.sc2[s,"cov.sim.index"]]])
   
@@ -446,41 +484,15 @@ write.csv(sim.res.sc2,
           row.names = FALSE)
 ```
 
-Here are saved results, in case you don't have time to run the above loop.
+To lead the saved results, uncomment the lines in this code chunk.
 
 ```{r}
-# sim.res.sc2 <- read.csv("sim.rsf.sc2_20250417.csv")
+# sim.res.sc2 <- read.csv("sim.rsf.sc2_20251112.csv")
 # sim.res.sc2$proxy_factor <- factor(sim.res.sc2$proxy_factor,
 #                                       levels = c("-1: 15, 0: 10, +1: 5",
 #                                                  "-1: 10, 0: 10, +1: 10",
 #                                                  "-1: 5, 0: 10, +1: 15"))
 ```
-
-
-Look that AICc would select the good model. Here the new model should have the lowest AICc, thus we calculated the difference by substrating the AICc of the baseline model from the AICc of the new model. The difference should be positive. Look at histogram.
-
-```{r}
-ggplot(data = sim.res.sc2) +
-  geom_histogram(aes(x=deltaAICc), bins=20) +
-  theme_bw() +
-  geom_vline(xintercept = 0)
-```
-
-How many are negative.
-
-```{r}
-sim.res.sc2 %>% filter(deltaAICc < 0) %>% nrow()
-```
-
-So we choose the wrong model 0% of the time.
-
-If we only select the new model if the difference is greater than 2 (i.e. 2 times the number of parameter difference, here 1).
-
-```{r}
-sim.res.sc2 %>% filter(deltaAICc < -2) %>% nrow()
-```
-
-So we choose the wrong model only 0% of the time (i.e. type II error rate is 0%, so power of 100%). The power will change with sample size, etc.
 
 ```{r}
 sim.res.sc2$proxy_sf <-  factor(paste(sim.res.sc2$n_m1,
@@ -511,6 +523,33 @@ sim.res.sc2 %>% filter(is.na(beta_cov_SE_new) | is.na(beta_cov_proxy_SE_new))
 
 There are no convergence message and none of the simulation runs returned a the standard error is `NA` when fitting the new model.
 
+
+Look that AICc would select the good model. Here the new model should have the lowest AICc, thus we calculated the difference by subtracting the AICc of the baseline model from the AICc of the new model. The difference should be positive. Look at histogram.
+
+```{r}
+ggplot(data = sim.res.sc2) +
+  geom_histogram(aes(x = deltaAICc), bins = 20) +
+  theme_bw() +
+  geom_vline(xintercept = 0)
+```
+
+Let's confirm that none are negative.
+
+```{r}
+sim.res.sc2 %>% filter(deltaAICc < 0) %>% nrow()
+```
+
+Thus, AICc would choose the wrong model 0% of the time.
+
+If we only select the new model if the difference is greater than 2 (i.e. 2 times the number of parameter difference, here 1).
+
+```{r}
+sim.res.sc2 %>% filter(deltaAICc < -2) %>% nrow()
+```
+
+Thus, AICc would choose the wrong model only 0% of the time. If we assume that the null model is the baseline model, type II error rate is 0% (i.e, power of 100%). The power will change with sample size, etc.
+
+
 Check if estimate is in 95 CI, so that we can calculate coverage.
 
 ```{r}
@@ -531,6 +570,7 @@ sim.res.sc2$beta_cov_proxy_in_95CI_new <- sim.res.sc2$beta_cov_proxy_95LCI_new <
 In case some random seeds returned NA for SE, we remove those simulations before calculating coverage.
 
 ```{r}
+# Baseline model
 sum(sim.res.sc2$beta_cov_in_95CI, na.rm = TRUE)/(nrow(sim.res.sc2) - sum(is.na(sim.res.sc2[,"beta_cov_SE"])))
 
 # Model with proxy - general selection
@@ -543,7 +583,7 @@ sum(sim.res.sc2$beta_cov_proxy_in_95CI_new, na.rm = TRUE)/(nrow(sim.res.sc2) - s
 
 As expected when we ignore the relationship with the proxy, the true underlying relationship is not captured, but if we fit the good model we get a coverage of about 95%.
 
-In scenario A, which has a baseline selection of the covariate of 0.5 and 1:1 relationship with the health/fitness proxy, the environmental covariate is important for animal, especially for those that are with good "health". Let's see how often the baseline model, which does not include the relationship with the health/fitness proxy, would conclude that this environmental covariate is not important. To do so, we will calculate how many confidence intervals (CIs) from the estimated coefficient from the baseline model overlap with 0.
+In scenario A, which has a baseline selection of the covariate of 0.5 and 1:1 relationship with the health/fitness proxy, the environmental covariate is important for animal, especially for those that are with good "health". Let's see how often the baseline model, which does not include the relationship with the health/fitness proxy, would conclude that this environmental covariate is not important. To do so, we will calculate how many confidence intervals (CIs) for the coefficient from the baseline model overlap with 0.
 
 ```{r}
 res.sc2.a <- subset(sim.res.sc2, beta_cov_sim == 0.5 & beta_cov_proxy_sim == 1) 
@@ -555,7 +595,7 @@ res.sc2.a %>% group_by(proxy_factor)  %>% summarise(n = sum(zero_in_CI, na.rm = 
 While the CIs of simulations where there are more individuals in good condition or a balanced number of individuals across condition do not overlap with 0, the CIs of all of the simulations where there are more individuals in poor condition overlap with 0.
 
 
-Scenario B has a baseline selection of the covariate of 0 and a negative relationship with the health/fitness proxy, meaning that in general the animal does not select for the environmental covariate and that healthy animals avoid it. Here only individual in poor condition select it. To see whether ignoring the health/fitness proxy could mislead us to think that this environmental covariate is important for the health of animal, we look at how many CIs are fully above zero (saying that it selects the covariate).
+Scenario B has a baseline selection of the covariate of 0 and a negative relationship with the health/fitness proxy, meaning that in general the animal does not select for the environmental covariate and that healthy animals avoid it. Here only individual in poor condition select it. To see whether ignoring the health/fitness proxy could mislead us to think that this environmental covariate is important for the health of animal, we look at how many CIs are fully above zero (saying that the animals select the covariate).
 
 ```{r}
 res.sc2.b <- subset(sim.res.sc2, beta_cov_sim == 0 & beta_cov_proxy_sim == -1) 
@@ -577,24 +617,29 @@ plot.sim.boxplot <- function(sim.res, beta_scenario,
   subset.sc <- subset(sim.res, beta_sim_factor == beta_scenario)
   beta.sc <- unique(subset.sc$beta_cov_sim)
   p <- ggplot() +
-    geom_boxplot(data = subset.sc, aes(x= proxy_sf, y= beta_cov_est), 
-                 width = 0.25, position= position_nudge(x=-.15), 
+    geom_boxplot(data = subset.sc, aes(x = proxy_sf, y= beta_cov_est), 
+                 width = 0.25, position= position_nudge(x = -.15), 
                  col = col.base.method, fill = alpha(col.base.method, 0.5)) +
-    geom_boxplot(data = subset.sc, aes(x= proxy_sf, y= beta_cov_est_new), 
-                 width = 0.25, position= position_nudge(x=+.15),
+    geom_boxplot(data = subset.sc, aes(x = proxy_sf, y= beta_cov_est_new), 
+                 width = 0.25, position= position_nudge(x = +.15),
                  col = col.new.method, fill = alpha(col.new.method, 0.5)) +
     geom_hline(aes(yintercept = beta.sc)) +
     xlab(x.title) + ylab(expression(hat(beta)[1])) +
     theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
     guides(Without.proxy = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
-                                                  gp = grid::gpar(fill = col.base.method, col=NA)), 
+                                                  gp = grid::gpar(fill = col.base.method,
+                                                                  col = NA)), 
                                  title = "Ignoring fitness proxy", order = 1, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top")),
            With.proxy = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
-                                                  gp = grid::gpar(fill = col.new.method, col=NA)), 
+                                                  gp = grid::gpar(fill = 
+                                                                    col.new.method,
+                                                                  col = NA)), 
                                  title = "Including fitness proxy", order = 2, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top"))) +
         theme_classic() + 
     theme(legend.position = "top",
@@ -642,34 +687,37 @@ n.sim <- 100
 n.avail <- 100
 ```
 
-It's just to assess that we can recover parameters, so no need to go into a range of ratios. We will use two imbalance ratios to make sure that it's robust to imbalance. Looking at whether we need the random effect on the intercept. By definition, it can't be on the other coefficients as there are not enough points to capture variability, but I think the intercept is needed to capture the link with available points.
+It's just to assess that we can recover parameters, so no need to go into a range of ratios. We will use two imbalance ratios to make sure that it's robust to imbalance. Looking at whether we need the random effect on the intercept. By definition, it can't be on the other coefficients as there are not enough points to capture variability, but we are verifying here that the intercept is needed to capture the link with available points.
 
 ```{r, cache = TRUE}
-betas.sc3 <- matrix(c(0.5, 1), nrow=1, byrow=TRUE)
+betas.sc3 <- matrix(c(0.5, 1), nrow = 1, byrow = TRUE)
 
 # This work with n = 50
 proxy.sc3 <- matrix(c(10, 15, 25, 
                       25, 15, 10),
-                    byrow = TRUE, nrow=2)
+                    byrow = TRUE, nrow = 2)
 colnames(proxy.sc3) <- c("n_m1", "n_0", "n_p1")
 
-sim.res.sc3 <- as.data.frame(matrix(nrow = n.sim*nrow(proxy.sc3)*nrow(betas.sc3), ncol = 27))
+sim.res.sc3 <- as.data.frame(matrix(nrow = n.sim*nrow(proxy.sc3)*nrow(betas.sc3), 
+                                    ncol = 27))
 colnames(sim.res.sc3) <- c("sim", "n_m1", "n_0", "n_p1", "cov.sim.index",
                            "beta_cov_est_re", "beta_cov_SE_re", 
-                           "beta_cov_95LCI_re", "beta_cov_95UCI_re", "beta_cov_in_95CI_re",
+                           "beta_cov_95LCI_re", "beta_cov_95UCI_re", 
+                           "beta_cov_in_95CI_re",
                            "beta_cov_proxy_est_re", "beta_cov_proxy_SE_re", 
-                           "beta_cov_proxy_95LCI_re", "beta_cov_proxy_95UCI_re", "beta_cov_proxy_in_95CI_re",
+                           "beta_cov_proxy_95LCI_re", "beta_cov_proxy_95UCI_re",
+                           "beta_cov_proxy_in_95CI_re",
                            "beta_cov_est_no_re", "beta_cov_SE_no_re", 
-                           "beta_cov_95LCI_no_re", "beta_cov_95UCI_no_re", "beta_cov_in_95CI_no_re",
+                           "beta_cov_95LCI_no_re", "beta_cov_95UCI_no_re",
+                           "beta_cov_in_95CI_no_re",
                            "beta_cov_proxy_est_no_re", "beta_cov_proxy_SE_no_re", 
-                           "beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new", "beta_cov_proxy_in_95CI_new",
+                           "beta_cov_proxy_95LCI_new", "beta_cov_proxy_95UCI_new",
+                           "beta_cov_proxy_in_95CI_new",
                            "converg_mess_re", "converg_mess_no_re")
 
 sim.res.sc3[,"sim"] <- 1:(n.sim*nrow(betas.sc3)*nrow(proxy.sc3))
 
 sim.res.sc3[,"cov.sim.index"] <- rep(1:n.sim, nrow(betas.sc3)*nrow(proxy.sc3))
-
-
 
 sim.res.sc3[, "n_m1"] <- rep(proxy.sc3[,"n_m1"], each = n.sim*nrow(betas.sc3))
 sim.res.sc3[, "n_0"] <- rep(proxy.sc3[,"n_0"], each = n.sim*nrow(betas.sc3))
@@ -679,11 +727,15 @@ sim.res.sc3[, "beta_cov_sim"] <- rep(betas.sc3[,1], each = n.sim)
 sim.res.sc3[, "beta_cov_proxy_sim"] <- rep(betas.sc3[,2], each = n.sim)
 
 sim.res.sc3$beta_sim_factor <- paste(sim.res.sc3$beta_cov_sim, sim.res.sc3$beta_cov_proxy_sim)
-sim.res.sc3$proxy_factor <- factor(paste("-1: ", sim.res.sc3$n_m1, ", 0: ", sim.res.sc3$n_0, ", +1: ", sim.res.sc3$n_p1, sep = ""))
-
+sim.res.sc3$proxy_factor <- factor(paste("-1: ", sim.res.sc3$n_m1, 
+                                         ", 0: ", sim.res.sc3$n_0, 
+                                         ", +1: ", sim.res.sc3$n_p1, sep = ""))
 ```
 
+**This will take mins to hours to run on most computers.** We provided a .csv file with the results in the repository that can be loaded below.
+
 ```{r sc3.sim, cache=TRUE}
+t0 <- Sys.time()
 # Use same set of covariates for each scenarios
 set.seed(123454321)
 cov.sc3 <- simulate_data(study.area, n = 1, scale = 0.9, sd = 0.1)
@@ -700,7 +752,9 @@ for(s in 1:nrow(sim.res.sc3)){
                              rep(0, sim.res.sc3[s, "n_0"]),
                              rep(+1, sim.res.sc3[s, "n_p1"])), 
                    cov.sc3[[sim.res.sc3[s,"cov.sim.index"]]], 
-                   betas = as.numeric(sim.res.sc3[s, c("beta_cov_sim", "beta_cov_proxy_sim")]))
+                   betas = as.numeric(sim.res.sc3[s, 
+                                                  c("beta_cov_sim",
+                                                    "beta_cov_proxy_sim")]))
   
   all.s <- avail.rsf(n.avail, study.area.sf, used.sf = sim.s, 
                      cov = cov.sc3[[sim.res.sc3[s,"cov.sim.index"]]])
@@ -708,7 +762,8 @@ for(s in 1:nrow(sim.res.sc3)){
   # with re on intercept
   fit.s.re <- fit.rsf(all.s, 
                          formula.rsf = case ~ cov + cov:proxy + (1 | ID),
-                          start = list(theta = log(10000)), map = list(theta = factor(NA)))
+                          start = list(theta = log(10000)), 
+                      map = list(theta = factor(NA)))
   sim.res.sc3[s, c("beta_cov_est_re", "beta_cov_SE_re")] <- 
     summary(fit.s.re)$coefficient$cond["cov", c("Estimate", "Std. Error")]
   sim.res.sc3[s, c("beta_cov_95LCI_re", "beta_cov_95UCI_re")] <- 
@@ -735,8 +790,18 @@ for(s in 1:nrow(sim.res.sc3)){
   sim.res.sc3[s, "converg_mess_no_re"] <-
     fit.s.no.re$fit$convergence
 }
+Sys.time() - t0
+# Save file
+write.csv(sim.res.sc3, 
+          file = paste("sim.rsf.sc3_", format(Sys.time(), "%Y%m%d"), ".csv",
+                               sep=""), 
+          row.names = FALSE)
 ```
+To load the results saved, uncomment the line in this code chunk.
 
+```{r}
+# sim.res.sc3 <- read.csv("sim.rsf.sc2_20251112.csv")
+```
 
 
 ```{r}
@@ -756,14 +821,18 @@ ggplot() +
     xlab("Ratio of individuals") + ylab(expression(hat(beta)[1])) +
     theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
     guides(RE = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
-                                                  gp = grid::gpar(fill = col.re.method, col=NA)), 
+                                                  gp = grid::gpar(fill = col.re.method,
+                                                                  col = NA)), 
                                  title = "Random effect on intercept", order = 1, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top")),
            NO.RE = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
-                                                  gp = grid::gpar(fill = col.no.re.method, col=NA)), 
+                                                  gp = grid::gpar(fill = col.no.re.method,
+                                                                  col = NA)), 
                                  title = "No random effect", order = 2, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top"))) +
   theme_classic() + 
   theme(legend.position = "top",
@@ -788,14 +857,18 @@ ggplot() +
     xlab("Ratio of individuals") + ylab(expression(hat(beta)[2])) +
     theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
     guides(RE = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
-                                                  gp = grid::gpar(fill = col.re.method, col=NA)), 
+                                                  gp = grid::gpar(fill = col.re.method,
+                                                                  col = NA)), 
                                  title = "Random effect on intercept", order = 1, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top")),
            NO.RE = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
-                                                  gp = grid::gpar(fill = col.no.re.method, col=NA)), 
+                                                  gp = grid::gpar(fill = col.no.re.method,
+                                                                  col = NA)), 
                                  title = "No random effect", order = 2, 
-                                 theme = theme(legend.title = element_text(size = axis.label.size),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = axis.label.size),
                                                legend.position = "top"))) +
   theme_classic() + 
   theme(legend.position = "top",
@@ -805,8 +878,6 @@ ggplot() +
           axis.line = element_line(colour = 'black', linewidth = 0.1),
           axis.ticks = element_line(colour = 'black', linewidth = 0.1),
           plot.margin = unit(c(1.05, 1.15, 0, 1), 'lines'))
-
-
 ```
 
 As I expected, we need the random effect on the intercept. If the random effect is not included, the estimates are biased. I note that the estimates of $\beta_1$ are not perfect even when the random effect is included, but it is beyond the scope of the paper to look at this in detail.
@@ -817,6 +888,6 @@ As I expected, we need the random effect on the intercept. If the random effect 
 sessionInfo()
 ```
 
-# Litterature cited
+# Literature cited
 
 Muff S., Signer J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087
