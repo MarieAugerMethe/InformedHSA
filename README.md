@@ -91,6 +91,53 @@ We use here the full (f) resolution.
 We have simply clipped the original file to be focussed on the area around the study site 
 and have transform the coordinate system to be EPSG:32617 (WGS 84 / UTM zone 17N).
 
+## Case study 2: gull
+
+The data files associated with the second case study are found in the subfolder `2_Gulls`. 
+
+1. `gulls_day_notoncol.csv`: file that contains the movement data for glaucous-winged gulls. Found in the subfolder `Movement`. 
+Specifically, this file contains the daytime location outside a 200 meter buffer from their colony for 12 glaucous-winged gulls.
+The columns are:
+    - device_id: individual identification number, specifically the tagging device number
+    - UTC_datetime: date time of the location (in UTC)
+    - satcount: the number of satellites used for the location
+    - hdop: horizontal dilution of precision (no units)
+    - Latitude: latitude of the location
+    - Longitude: longitude of the location
+    - final_chick: number of chicks
+    - tagging_date_local: date of tagging in local time (Pacific time zone)
+    - release_time_local: time of release in local time (Pacific time zone)
+    - DatetimeLocal: date time in local time (Pacific time zone)
+    - X_UTM: Easting value of the location (in meters; EPSG: 26910 (WGS 84 / UTM zone 10N) coordinate system)
+    - Y_UTM: Northing value of the location (in meters; EPSG: 26910 (WGS 84 / UTM zone 10N) coordinate system)
+
+2. `BC_UTM`: folder that contains the files needed for the `bc_UTM.shp` shapefile. 
+This shapefile contains the land layer around the study area in British Columbia, Canada (and northern Washington, USA). 
+The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
+We use here the full (f) resolution. 
+We have simply clipped the original file to be focused on the area around the study site 
+and have transform the coordinate system to be EPSG:26910 (WGS 84 / UTM zone 10N).
+
+3. `XOXDEL_UTM`: folder that contains the files needed for `xoxdel_UTM.shp` shapefile. 
+The file represent the buffer around the island where the gulls have their colony, named XOXDEL (Mandarte Island). 
+First, a polygon was created by hand using Google Earth satellite images.  
+The polygon represents the line above the intertidal zone. 
+Then, the projection was changed to EPSG:26910 (WGS 84 / UTM zone 10N).
+Finally, a 200 meters buffer around the polygon was added.
+Only the 200 meters buffer is kept in the final shapefile.
+
+
+4. `CumHumanImpact.tiff`: contains the cumulative human impact raster. 
+The file is found in the `Covariates/HumanImpact` subfolder. 
+The original data is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
+We clipped it to be the area around the study area and changed the projection to EPSG:26910 (WGS 84 / UTM zone 10N).
+Using the R package `terra` we filled missing values on the coast using:
+```
+humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
+humanImpact <- mask(humanImpact, land)
+```
+where `land` is the layer found in the `bc_UTM.shp` shapefile.
+
 # Code
 
 ## Literature review

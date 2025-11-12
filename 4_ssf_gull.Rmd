@@ -1,0 +1,907 @@
+---
+title: "SSF for gulls"
+author: "Marie Auger-Méthé"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Set up
+
+## Packages
+
+```{r packages, message=FALSE}
+library(here) # To simplify data sharing
+library(tidyverse)
+library(ggpubr) # To put plots side-by-side
+library(sf) # to handle spatial object
+library(amt) # to prep data for ssf (and fit simpler ssf)
+library(glmmTMB)
+library(terra)
+library(tidyterra)
+library(kableExtra)
+library(modelsummary)
+options(modelsummary_factory_default = 'kableExtra') # New version has tinytable default option
+options(modelsummary_factory_latex = 'kableExtra')
+options(modelsummary_factory_html = 'kableExtra')
+library(tinytable)
+library(MuMIn)
+```
+
+## Gull data
+
+We will look at the movement data of 12 gulls from one day after capture to July 2021, 2023. Only locations that are during the day are included as gulls mostly forage during the day. We excluded location close to the colony (200 m buffer from XOXDEL), as the time they spent on the colony or loafing/flying close to it are most likely linked with reproduction (e.g., incubating, mating, sleeping on nest).
+
+```{r}
+gulls <- read.csv(file=file.path(here("Data/2_Gulls/Movement"),"gulls_day_notoncol.csv"))
+head(gulls)
+```
+
+Formatting some of the columns.
+
+```{r}
+# Device ID is the ID of the individuals (so factor)
+gulls$device_id <- as.factor(gulls$device_id)
+# Make date time as date time object
+gulls$DatetimeLocal <- ymd_hms(gulls$DatetimeLocal, tz = "America/Vancouver")
+gulls$UTC_datetime <- ymd_hms(gulls$UTC_datetime, tz = "UTC")
+```
+
+Create data summary table.
+
+```{r}
+gull.data.table <- gulls %>% group_by(device_id) %>% 
+  summarize("Date of capture" = unique(date(tagging_date_local)),
+                                                "N. of days" = as.numeric(round(max(UTC_datetime) - min(UTC_datetime), 1)),
+                                                "N. of locations" = length(device_id), 
+                                                "N. of chicks" = unique(final_chick)) 
+colnames(gull.data.table)[1] <- "Individual"
+
+cat(kable(gull.data.table, format="latex", caption="Gull data summary. For each individual (identified by tag serial number), we present the date of capture, the number of days, the number of locations used in the analyses (only day time locations outside a 200 m buffer from the colony), and the number of chicks they had on July 31, 2023.", booktabs=TRUE, linesep = "", row.names = FALSE),  file="gull_data_summary.tex")
+```
+
+We will project all data in the UTM Zone 10N (EPSG: 26910). Other layers already in that coordinate system.
+
+```{r proj}
+chosen.proj <- 26910
+```
+
+
+Get land, XOXDEL (the colony with buffer), and human impact layers.
+
+```{r layers.load, message=FALSE}
+xoxdel <- st_read(file.path(here("Data/2_Gulls/Covariates/XOXDEL_UTM"), "xoxdel_UTM.shp"))
+land <- st_read(file.path(here("Data/2_Gulls/Covariates/BC_UTM"), "bc_UTM.shp"))
+human <- rast(file.path(here("Data/2_Gulls/Covariates/HumanImpact","CumHumanImpact.tiff")))
+```
+
+The main habitat covariate we are interested in is the cumulative human impact. We are using the data for 2022 from  Mu et al. (2021, 2022). We use 2022, rather than 2023, because 2022 was the most recent layer available at the time of analysis. We note that we pre-process the data, specifically we reprojected it, interpolated values for land cells that had NA values, and scaled it so that the impact values ranged between 0 and 1.
+
+```{r plot.hi, message=FALSE}
+ggplot() +
+  geom_spatraster(data = human) +
+  geom_sf(data = land, col="green", fill=NA) +
+  geom_sf(data = xoxdel, col="hotpink", fill=NA) +
+  coord_sf(xlim = ext(human)[1:2], ylim = ext(human)[3:4], expand=FALSE)
+```
+
+While the NA would not matter in theory in the analysis because the model only takes into count the human layer if it is on land and thus not NA. If we keep the NAs, the model will be dropping all rows where the human layer is equal to NA, which in effect will drop all locations on water. Thus change NAs to 0.
+
+```{r}
+human[is.na(human)] <- 0
+```
+
+# Sampling control points
+
+Function to prepare the data for step-selection function (SSF). This function samples the control points for the SSF.
+
+```{r prep.data.fx}
+prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id", 
+                          x.name = "X_UTM", y.name = "Y_UTM", t.name = "DatetimeLocal",
+                          mask = NULL, dt=15, n.random.extra = 50, n.avail = 30){
+  
+  
+  # Create observed steps
+  tracks.id <- tracks %>% nest(.by= c(!! sym(id.col.name), !!! syms(fit.col.name)))
+  steps.id <- tracks.id %>% 
+    mutate(trk = map(data, function(d) {
+      d %>% make_track(.x = !! sym(x.name), .y = !! sym(y.name), .t= !! sym(t.name)) %>%
+        track_resample(rate = minutes(dt), tolerance = minutes(1)) %>% steps_by_burst()})) 
+  
+  
+  steps.avail <- steps.id
+  steps.avail$rp <- NULL
+  
+  # Here I want the parameters used to create the random steps to be from the same distribution (not taken from the estimated for each individual)
+  data <- steps.avail %>% dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), trk) %>%  
+    unnest(cols= c(trk)) 
+  gamma_par <-  data$sl_ %>% fit_distr("gamma")
+  vonmises_par <- data$ta_ %>% fit_distr("vonmises")
+  
+  for(i in 1:nrow(steps.avail)){
+    steps.avail[[i,"rp"]][[1]] <- steps.id[[i,"trk"]][[1]] %>% 
+      random_steps(n_control = n.random.extra,
+                   sl_distr = make_gamma_distr(shape = gamma_par$params$shape,
+                                               scale = gamma_par$params$scale,
+                                               vcov = gamma_par$vcov),
+                   ta_distr = make_vonmises_distr(kappa = vonmises_par$params$kappa,
+                                                  vcov = vonmises_par$vcov))
+  }
+  
+  for(i in seq_along(cov)){
+    steps.avail <- steps.avail %>% mutate(rp = map(rp, function(d){
+      extract_covariates(d,cov[[i]])}))
+  }
+  
+  steps.avail <- steps.avail %>% dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), rp) %>%  
+    unnest(cols= c(rp))  
+  
+  
+  
+  # Important: the `step_id_` will have erroneously similar names across individuals.
+  # We change the name here.
+  steps.avail$step_id_ <- paste(steps.avail[[id.col.name]], steps.avail$step_id_, sep="_")
+  steps.avail.sf <- st_as_sf(filter(steps.avail, !is.na(ta_)), coords = c("x2_", "y2_"), remove=FALSE)
+  st_crs(steps.avail.sf) <- chosen.proj
+  
+  
+  # If there is a mask, remove point in the mask
+  for(i in seq_along(mask)){
+    steps.avail.sf$mask <- rowSums(st_intersects(steps.avail.sf, mask[[i]], sparse=FALSE))
+    steps.avail.sf <- subset(steps.avail.sf, !mask)
+  }
+    
+  # Pick the first n.aval available (+ observed)
+  steps.avail.11 <- as.data.frame(steps.avail.sf) %>%
+      group_by(step_id_) %>% filter(row_number() >= 1 & row_number() <= n.avail + 1)
+  
+  # Get the log sl and cos ta. And numeric case for poisson distribution
+  steps.avail.11$ln_sl <- log(steps.avail.11$sl_)
+  steps.avail.11$cos_ta <- cos(steps.avail.11$ta_)
+  steps.avail.11$case_num <- as.numeric(steps.avail.11$case_)
+  
+  return(list(steps.id = steps.id,
+              steps.avail = steps.avail.11,
+              gamma_par=gamma_par,
+              vonmises_par=vonmises_par))
+}
+```
+
+
+```{r prep.gull.data, warning=FALSE, message=FALSE, cache=TRUE}
+set.seed(7777333)
+gulls.steps.avail <- prep.data.ssf(gulls, cov = list(human), 
+                                   fit.col.name = "final_chick", id.col.name = "device_id")
+```
+
+There are some warnings and messages (not shown in the compiled version). Some state that step lengths equal to 0 will be given a small value. It states that it's because it will run into issues with the Gamma distribution. The value used is extremely small and should be an adequate approximation given the coarseness of the human impact layer. Others state that some burst has less than 3 steps and will be removed. This could be the results of short trips out of the colony. 
+
+COULD CONSIDER A SMALLER BUFFER. MAYBE 100 m?
+
+```{r}
+head(gulls.steps.avail$steps.avail)
+```
+Here, we are only exploring the relationship with cummulative human impacts on land, but allow the model to consider gull locations on the ocean. To do so, we create a binary variable that identifies whether the location is on land or not.
+
+```{r}
+gulls.avail.sf <- st_as_sf(gulls.steps.avail$steps.avail, coords = c("x2_", "y2_"), remove=FALSE)
+st_crs(gulls.avail.sf) <- chosen.proj
+
+# Is the point on Land
+gulls.avail.sf$onLand <- as.logical(rowSums(st_intersects(gulls.avail.sf, land, sparse = FALSE)))
+```
+
+
+
+```{r}
+border.size <- 10000
+ggplot() +
+  geom_sf(data = gulls.avail.sf, aes(color = onLand)) +
+  geom_sf(data = land, col = "green", fill=NA) +
+  xlim(st_bbox(xoxdel)[1]-border.size, st_bbox(xoxdel)[3]+border.size) +
+  ylim(st_bbox(xoxdel)[2]-border.size, st_bbox(xoxdel)[4]+border.size)  
+```
+
+
+Let's also get distance to coastline (as gulls are coastal and do not go far inland or offshore). To be able to make calculate distance need to make it a line
+
+```{r}
+land.1 <- st_cast(st_union(land),  to = 'MULTILINESTRING') # Need to make it a line to 
+ggplot() +
+  geom_sf(data=land.1)
+```
+
+Now calculate distance to land. This will take about a minute to run.
+
+```{r}
+gulls.avail.sf$distShore <- as.numeric(st_distance(gulls.avail.sf, land.1))/1000 # in km
+
+border.size <- 50000
+
+ggplot() +
+  geom_sf(data = gulls.avail.sf, aes(color = distShore), size=0.5) +
+  geom_sf(data = land, col = "green", fill=NA) +
+  xlim(st_bbox(xoxdel)[1]-border.size, st_bbox(xoxdel)[3]+border.size) +
+  ylim(st_bbox(xoxdel)[2]-border.size, st_bbox(xoxdel)[4]+border.size)  
+```
+
+Gulls are central place foragers when they are nesting, so let's also look at distance to colony.
+
+```{r, cache = TRUE}
+# change onject to multi line string to be able to calculate distance
+xoxdel.1 <- st_cast(st_union(xoxdel),  to = 'MULTILINESTRING') # Need to make it a line to 
+gulls.avail.sf$distXOXDEL <- as.numeric(st_distance(gulls.avail.sf, xoxdel.1))/1000 # in km
+```
+
+
+
+```{r}
+border.size <- 50000
+
+ggplot() +
+  geom_sf(data = gulls.avail.sf, aes(color = distXOXDEL), size=0.5) +
+  geom_sf(data = land, col = "green", fill=NA) +
+  xlim(st_bbox(xoxdel)[1]-border.size, st_bbox(xoxdel)[3]+border.size) +
+  ylim(st_bbox(xoxdel)[2]-border.size, st_bbox(xoxdel)[4]+border.size)  
+```
+
+
+Correlation between human impact and distance to colony. Only considering land locations.
+
+```{r}
+cor(subset(gulls.avail.sf, onLand)$HumanImpact,
+    subset(gulls.avail.sf, onLand)$distXOXDEL)
+```
+
+Pretty low.
+
+```{r}
+all.steps <- as.data.frame(gulls.avail.sf)
+# Numeric value so that it's a like a dummy variable
+all.steps$onLandN <- as.numeric(all.steps$onLand)
+```
+
+
+## Fit models
+
+Function to fit model.
+
+```{r}
+fit.poisson.rs <- function(formula, data, start = list(theta = log(1e6)), map = list(theta=factor(NA))){
+  ssf <- glmmTMB(formula, family=poisson, 
+                 data = data, start = start, map = map)
+  return(ssf)
+}
+```
+
+AICc table function.
+
+```{r aicc.table.fx}
+AICcTable <- function(m, ...){
+  namesObj <- names(tibble::lst(m, ...))
+  namesObj[1] <- deparse(substitute(m))
+  AICc.table <- AICc(m,...)
+  row.names(AICc.table) <- namesObj
+  AICc.table <- AICc.table %>% mutate(deltaAICc = AICc - min(AICc, na.rm=TRUE))
+  AICc.table[order(AICc.table$deltaAICc),]
+}
+```
+
+We will look at two simple step-selection function (SSF) models that focus on how land and human impact on land affect selection, while accounting for the fact that glaucous-winged gulls are coastal animals (there are not far inland or offshore) and are central place foragers during incubation and chick rearing. The baseline model (model 1) only includes the relationship with land, human impact on land, distance to shore, and distance to colony, while the new model (model 2) includes an interaction with number of chicks.
+
+Model 1 (baseline model): Chicks ignored
+
+The SSF fitted models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as: 
+
+$$\mu_{n,t,j} = \text{exp}(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} + \beta_{2,n} c_{n,t,j} + \beta_{3,n} x_{n,t,j} + \beta_{4,n} x_{n,t,j} h_{n,t,j} + \beta_{l} l_{n,t,j} + \beta_{\text{ln}} \text{ln}(l_{n,t,j}) + \beta_{\theta} \text{cos}(\theta_{n,t,j}))), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}),$$
+
+where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ is distance to shore, $c_{n,t,j}$ is the distance to colony, $x_{n,t,j}$ is whether the animal was on land (1) or not (0), $h_{n,t,j}$ is the cummulative human impact value. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modeled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$, $\beta_{2,n}$, $\beta_{3,n}$, and $\beta_{4,n}$ are the coefficients associated with the relationship with covariates and are modelled with random effects where we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$, $\beta_{2,n} \sim \text{N}(\beta_2, \sigma_2^2)$, $\beta_{3,n} \sim \text{N}(\beta_3, \sigma_3^2)$, and $\beta_{4,n} \sim \text{N}(\beta_4, \sigma_4^2)$. The rest of the equation is associated with the movement kernel, where $l_{n,t,j}$ and $\theta_{n,t,j}$ are the step length and turning angle of step $j$ of individual $n$ at time $j$, and the coefficients $\beta_l$, $\beta_{\text{ln}}$, $\beta_{\theta}$.
+
+Since the land variable, $x_{n,t,j}$ can only take two values: 0 and 1, it controls the fact that human impact is only included when the animal is on land. This will take a minute to run.
+
+```{r, warning=FALSE}
+ssf.rsri <- fit.poisson.rs(formula = case_num ~ -1 + 
+                             distShore + 
+                             distXOXDEL +
+                             onLandN +
+                             I(onLandN*HumanImpact) +
+                             sl_ + ln_sl + cos_ta + (1|step_id_) + 
+                             (0 + 
+                                distShore + 
+                                distXOXDEL +
+                                onLandN + 
+                                I(onLandN*HumanImpact) | device_id),
+                           data = all.steps, 
+                           start = list(theta = c(log(1e6), rep(0,10))),
+                           map = list(theta=factor(c(NA,1,2,3,4, rep(NA,6)))))
+summary(ssf.rsri)
+```
+
+There are many warning messages (not shown in compiled version), but these are common when fitting complex model to data. The fact that the standard errors are shown is a good sign. Let's look if there are convergence issues.
+
+```{r}
+ssf.rsri$fit$convergence
+```
+
+Looks ok.
+
+Model 2 (new model): includes number of chicks
+
+The new model is based on the previous model but it includes interactions with the number of chicks.
+
+$$\mu_{n,t,j} = \text{exp}(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} + \beta_{2,n} c_{n,t,j} + \beta_{3,n} x_{n,t,j} + \beta_{4,n} x_{n,t,j} h_{n,t,j} + \beta_{5} r_{n} c_{n,t,j}  + \beta_{6} r_{n} x_{n,t,j} h_{n,t,j}  + \beta_{l} l_{n,t,j} + \beta_{\text{ln}} \text{ln}(l_{n,t,j}) + \beta_{\theta} \text{cos}(\theta_{n,t,j}), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}),$$
+
+which differ from the model only in two terms: $\beta_{5} r_{n} c_{n,t,j}$  and $\beta_{6} r_{n} x_{n,t,j} h_{n,t,j}$, which both include an interaction with the number of chicks $r_{n}$.
+
+This will take a minute to run.
+
+```{r, warning=FALSE}
+ssf.rsrifit <- fit.poisson.rs(formula = 
+                                case_num ~ -1 + 
+                                distShore + 
+                                distXOXDEL +
+                                distXOXDEL:final_chick +
+                                onLandN +
+                                I(onLandN*HumanImpact) + 
+                                I(onLandN*HumanImpact):final_chick +
+                                sl_ + ln_sl + cos_ta + 
+                                (1|step_id_) +
+                                (0 + 
+                                   distShore +
+                                   distXOXDEL +
+                                   onLandN +
+                                   I(onLandN*HumanImpact) | device_id),
+                            data = all.steps, 
+                            start = list(theta = c(log(1e6), rep(0, 10))),
+                            map = list(theta=factor(c(NA,1,2,3,4, rep(NA,6))))) # Assuming correlation of 0
+summary(ssf.rsrifit)
+```
+
+There are warnings (not shown in compiled version), but these are common when fitting a complex glmm. The fact that we get standard errors is a good sign. Let's look if there are convergence issues.
+
+```{r}
+ssf.rsrifit$fit$convergence
+```
+
+Looks ok.
+
+Look at AIC of the two models.
+
+```{r}
+AICcTable(ssf.rsrifit, ssf.rsri)
+```
+
+```{r par.est.setup}
+title <- "Parameter estimates from the two SSF models applied to the glaucous-winged gull data. The parameter estimates, along with standard errors, are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the significance level of 0.05."
+
+coef_map <- c("distShore" = "$\\beta_1: d_{n,t,j}$", # "Distance to shore",
+              "distXOXDEL" = "$\\beta_2: c_{n,t,j}$", # Distance to colony 
+              "onLandN" = "$\\beta_3: x_{n,t,j}$", # "On land" 
+              "I(onLandN * HumanImpact)" = "$\\beta_4: x_{n,t,j} h_{n,t,j}$", #"On land X Human impact",
+              
+              # "Distance to colony X Chick" 
+              "distXOXDEL:final_chick" = "$\\beta_5: r_{n} c_{n,t,j}$",
+              "final_chick:distXOXDEL" = "$\\beta_5: r_{n} c_{n,t,j}$",
+              
+              # "On land X Human impact X Chick"
+              "I(onLandN * HumanImpact):final_chick" = "$\\beta_6: r_{n} x_{n,t,j} h_{n,t,j}$", 
+              "final_chick:I(onLandN * HumanImpact)" = "$\\beta_6: r_{n} x_{n,t,j} h_{n,t,j}$", 
+              
+              "sl_" = "$\\beta_l: l_{n,t,j}$", #"Step length",
+              "ln_sl" = "$\\beta_{\\text{ln}}: \\text{ln}(l_{n,t,j})$", #"ln(Step length)",
+              "cos_ta" = "$\\beta_{\\theta}: \\text{cos}(\\theta_{n,t,j})$", #"cos(Turning angle)",
+              
+              #"SD(distance to shore), group: ID",
+              "SD (distShore device_id)" = "$\\sigma_1: \\beta_1$",
+              #"SD(distance to colony), group: ID",
+              "SD (distXOXDEL device_id)" = "$\\sigma_2: \\beta_2$",
+              #"SD(On land), group: ID",
+              "SD (onLandN device_id)" = "$\\sigma_3: \\beta_3$",
+              #"SD(On land X Human Impact), group: ID",
+              "SD (I(onLandN * HumanImpact) device_id)" = "$\\sigma_4: \\beta_4$")
+
+estimates <- "{estimate}{stars}"
+statistics <-  "({std.error})"
+```
+
+```{r}
+models <- list("Ignored" = ssf.rsri,
+               "In selection function" = ssf.rsrifit)
+
+modelsummary(models, 
+             estimate = estimates, 
+             statistic = statistics,
+             coef_map = coef_map,
+             gof_map = NA,
+             fmt = fmt_significant(3),
+             stars = c("*"=0.05),
+             title = title,
+             escape = FALSE) %>%
+  add_header_above(c("Par: Variables" = 1, "Number of chicks" = 2),
+                   escape = FALSE)
+```
+
+```{r}
+options(modelsummary_format_numeric_latex = "plain")
+# To output for latex
+table.latex <- modelsummary(models,
+             estimate = estimates,
+             statistic = statistics,
+             coef_map = coef_map,
+             gof_map = NA,
+             fmt = fmt_significant(3),
+             stars = c("*"=0.05),
+             title = title,
+             output = "gull_par_est.tex",
+             escape = FALSE) %>%
+  add_header_above(c("Par: Variables" = 1, "Number of chicks" = 2),
+            escape = FALSE)
+cat(table.latex, file="gull_par_est.tex")
+```
+
+
+How the selection function changes with chick number
+
+Function to be able to plot the effects.
+
+```{r}
+chick.ignored.col <- "black"
+
+chick.3.col <- "#2c7bb6"
+chick.2.col <- "#abd9e9"
+chick.1.col <- "#fdae61"
+chick.0.col <- "#d7191c"
+
+hum.imp.val.avg <- all.steps %>% filter(case_num == 1 & onLandN) %>% pull(distShore) %>% mean
+dist.shore.val.avg <- all.steps %>% filter(case_num == 1) %>% pull(distShore) %>% mean
+dist.xoxdel.val.avg <- all.steps %>% filter(case_num == 1) %>% pull(distXOXDEL) %>% mean
+
+# model <- ssf.rsri
+# n.chick <- 1
+# hum.imp.val <- hum.imp.val.avg
+# dist.shore.val <- dist.shore.val.avg
+# dist.xoxdel.val <- dist.xoxdel.val.avg
+
+ssf.pred.hum <- function(model, n.chick, hum.imp.val = 0, dist.shore.val = 0, dist.xoxdel.val = 2000){
+  if(is.na(n.chick)){
+    ssf.pred.c <- exp(
+      summary(model)$coef$cond["distShore",1]*dist.shore.val +
+        summary(model)$coef$cond["distXOXDEL",1]*dist.xoxdel.val +
+        summary(model)$coef$cond["onLandN",1] +
+        summary(model)$coef$cond["I(onLandN * HumanImpact)",1]*hum.imp.val)
+      
+  }else{
+    ssf.pred.c <- exp(
+      summary(model)$coef$cond["distShore",1]*dist.shore.val +
+        summary(model)$coef$cond["distXOXDEL",1]*dist.xoxdel.val +
+        summary(model)$coef$cond["onLandN",1] +
+        summary(model)$coef$cond["I(onLandN * HumanImpact)",1]*hum.imp.val +
+        # Interactions with number of chicks (name changes)
+        n.chick*summary(model)$coef$cond["distXOXDEL:final_chick",1]*dist.xoxdel.val +
+        n.chick*summary(model)$coef$cond["final_chick:I(onLandN * HumanImpact)",1]*hum.imp.val)
+        #n.chick*summary(model)$coef$cond["I(onLandN * HumanImpact):final_chick",1]*hum.imp.val)
+  }
+  return(ssf.pred.c)
+}
+```
+
+Let's look at the relationship with human impact.
+
+```{r}
+hum.imp.seq <- seq(0, 1, by = 0.01)
+ssf.pred.chick <- data.frame(human.imp = hum.imp.seq, 
+                             pred.ignored = ssf.pred.hum(ssf.rsri, NA, 
+                                                         hum.imp.seq,
+                                                         dist.shore.val.avg,
+                                                         dist.xoxdel.val.avg))
+ssf.pred.chick$pred.0 <- ssf.pred.hum(ssf.rsrifit, 0, 
+                                      hum.imp.seq,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.val.avg)
+ssf.pred.chick$pred.1 <- ssf.pred.hum(ssf.rsrifit, 1,
+                                      hum.imp.seq,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.val.avg)
+ssf.pred.chick$pred.2 <- ssf.pred.hum(ssf.rsrifit, 2,
+                                      hum.imp.seq,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.val.avg)
+ssf.pred.chick$pred.3 <- ssf.pred.hum(ssf.rsrifit, 3,
+                                      hum.imp.seq,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.val.avg)
+```
+
+Plot set up, general.
+
+```{r}
+land.col <- NA #"floralwhite"#'beige'
+water.col <- rgb(222, 235, 247, maxColorValue = 255)#"lightcyan2"#'lightblue1'
+hum.min.col <- "#ffffcc"
+hum.mid.col <- "#fd8d3c"
+hum.max.col <- "#800026"
+
+ssf.min.col <- "#ffffcc"
+ssf.mid.col <- "#41b6c4"
+ssf.max.col <- "#0c2c84"
+
+legend.text.size <- 0.8
+
+plot.mar.l <- c(0.5,0.2,0,0.2)
+
+x.min.crop.l <- 150000 
+x.max.crop.l <- 70000
+y.min.crop.l <- 230000
+y.max.crop.l <- 100000
+```
+
+```{r}
+hum.rel.chicks <- ggplot() + 
+  geom_line(data = ssf.pred.chick, aes(x = human.imp, y = pred.ignored),
+            col=chick.ignored.col) +
+  geom_line(data = ssf.pred.chick, aes(x = human.imp, y = pred.0), col=chick.0.col) +
+  geom_line(data = ssf.pred.chick, aes(x = human.imp, y = pred.1), col=chick.1.col) +
+  geom_line(data = ssf.pred.chick, aes(x = human.imp, y = pred.2), col=chick.2.col) +
+  geom_line(data = ssf.pred.chick, aes(x = human.imp, y = pred.3), col=chick.3.col) +
+  theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
+  xlab("Human impact") + ylab("SSF") + 
+  guides(Chicks.ignored = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
+                                                  gp = grid::gpar(fill = chick.ignored.col,
+                                                                  col=NA)), 
+                                 title = "Ignoring chicks", order = 1, 
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+         Chick.0 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.0.col,
+                                                                  col=NA)), 
+                                 title = "0 chicks", order = 2, 
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+         Chick.1 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.1.col,
+                                                                  col=NA)), 
+                                 title = "1 chick ", order = 3, 
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+         Chick.2 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.2.col,
+                                                                  col=NA)), 
+                                 title = "2 chicks", order = 4, 
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top")),
+         Chick.3 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.3.col,
+                                                                  col=NA)), 
+                                 title = "3 chicks", order = 5, 
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top"))) +
+  #scale_x_continuous(expand = c(0, 0)) +
+    theme_classic() + 
+    theme(legend.position = "top",
+          axis.title = element_text(size = rel(0.7)),
+          axis.text = element_text(size = rel(0.5)),
+          panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          axis.line = element_line(colour = 'black', linewidth = 0.1),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+          plot.margin = unit(c(1.05, 1.15, 0, 1), 'lines'))
+
+hum.rel.chicks
+```
+
+
+```{r}
+legend.plot.rel.hum <- as_ggplot(get_legend(hum.rel.chicks)) 
+```
+
+Relationship with distance to colony. Let's look at the range of distance.
+
+```{r}
+all.steps %>% filter(case_num == 1) %>% pull(distXOXDEL) %>% range %>% round
+```
+
+
+```{r}
+dist.shore.val.avg <- all.steps %>% filter(case_num == 1) %>% pull(distShore) %>% mean
+dist.xoxdel.seq <- seq(0, 160, by=1)
+ssf.pred.chick.dist.col <- data.frame(dist.col = dist.xoxdel.seq, 
+                             pred.ignored = ssf.pred.hum(ssf.rsri, NA, 
+                                                         hum.imp.val.avg,
+                                                         dist.shore.val.avg,
+                                                         dist.xoxdel.seq))
+ssf.pred.chick.dist.col$pred.0 <- ssf.pred.hum(ssf.rsrifit, 0,
+                                      hum.imp.val.avg,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.seq)
+ssf.pred.chick.dist.col$pred.1 <- ssf.pred.hum(ssf.rsrifit, 1,
+                                      hum.imp.val.avg,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.seq)
+ssf.pred.chick.dist.col$pred.2 <- ssf.pred.hum(ssf.rsrifit, 2,
+                                      hum.imp.val.avg,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.seq)
+ssf.pred.chick.dist.col$pred.3 <- ssf.pred.hum(ssf.rsrifit, 3,
+                                      hum.imp.val.avg,
+                                      dist.shore.val.avg,
+                                      dist.xoxdel.seq)
+```
+
+Plot
+
+```{r}
+dist.col.rel.chicks <- ggplot() + 
+  geom_line(data = ssf.pred.chick.dist.col, 
+            aes(x = dist.col, y = pred.ignored),
+            col = chick.ignored.col) +
+  geom_line(data = ssf.pred.chick.dist.col, aes(x = dist.col, y = pred.0), col=chick.0.col) +
+  geom_line(data = ssf.pred.chick.dist.col, aes(x = dist.col, y = pred.1), col=chick.1.col) +
+  geom_line(data = ssf.pred.chick.dist.col, aes(x = dist.col, y = pred.2), col=chick.2.col) +
+  geom_line(data = ssf.pred.chick.dist.col, aes(x = dist.col, y = pred.3), col=chick.3.col) +
+  theme(panel.border = element_rect(fill=NA, linewidth = 0.5)) +
+  xlab("Distance to colony (km)") + ylab("SSF") + 
+  guides(Chicks.ignored = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
+                                                  gp = grid::gpar(fill = chick.ignored.col,
+                                                                  col=NA)), 
+                                 title = "Ignoring chicks", order = 1, 
+                                 theme = theme(legend.title = element_text(size = rel(0.5)),
+                                               legend.position = "top")),
+         Chick.0 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.0.col,
+                                                                  col=NA)), 
+                                 title = "0 chicks", order = 2, 
+                                 theme = theme(legend.title = element_text(size = rel(0.5)),
+                                               legend.position = "top")),
+         Chick.1 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.1.col,
+                                                                  col=NA)), 
+                                 title = "1 chick ", order = 3, 
+                                 theme = theme(legend.title = element_text(size = rel(0.5)),
+                                               legend.position = "top")),
+         Chick.2 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.2.col,
+                                                                  col=NA)), 
+                                 title = "2 chicks", order = 4, 
+                                 theme = theme(legend.title = element_text(size = rel(0.5)),
+                                               legend.position = "top")),
+         Chick.3 = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
+                                                  gp = grid::gpar(fill = chick.3.col,
+                                                                  col=NA)), 
+                                 title = "3 chicks", order = 5, 
+                                 theme = theme(legend.title = element_text(size = rel(0.5)),
+                                               legend.position = "top"))) +
+  #scale_x_continuous(expand = c(0, 0)) +
+    theme_classic() + 
+    theme(legend.position = "top",
+          axis.title = element_text(size = rel(0.7)),
+          axis.text = element_text(size = rel(0.5)),
+          panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          axis.line = element_line(colour = 'black', linewidth = 0.1),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1),
+          plot.margin = unit(c(1.05, 1.15, 0, 1), 'lines'))
+
+dist.col.rel.chicks
+```
+
+Create rasters for maps. Start with land rater. Put 0 on NAs for human, which are locations in water. The locations are already ignored since human impact is only switched on when on land.
+
+
+```{r}
+landR <- as.numeric(rasterize(land, human))
+landR[is.na(landR)] <- 0
+plot(landR)
+```
+
+```{r}
+hum.val.range <- range(as.data.frame(human))
+
+#human.4.map <- mask(human, land)
+human.4.map <- human
+human.4.map[landR == 0] <- NA
+```
+
+
+```{r}
+hum.imp.map <- ggplot() +
+    geom_spatraster(data = human.4.map) +
+    scale_fill_gradient2(low=hum.min.col, mid=hum.mid.col, high=hum.max.col,
+                      midpoint = mean(hum.val.range), limit = hum.val.range, na.value = NA) +
+    geom_sf(data=land, fill=land.col) +
+    coord_sf(xlim = c(st_bbox(human)[1] + x.min.crop.l, 
+                      st_bbox(human)[3])-x.max.crop.l,
+           ylim = c(st_bbox(human)[2]+y.min.crop.l, 
+                    st_bbox(human)[4])-y.max.crop.l, expand = FALSE) +
+        theme(panel.background = element_rect(fill = water.col),
+              panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          legend.title = element_text(size = rel(legend.text.size)),
+          legend.text = element_text(size = rel(0.5)),
+          legend.position = "top",
+          axis.text = element_text(size = rel(0.5)),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+    scale_y_continuous(breaks = seq(47, 50, by = 0.5)) +
+    scale_x_continuous(breaks = seq(-125, -120, by = 0.5)) +
+    guides(fill = guide_colorbar(title = "Human impact", order = 4,
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top"))) +
+    theme(plot.margin = unit(plot.mar.l, 'lines'))
+hum.imp.map
+```
+
+Human impact legend
+
+```{r}
+legend.human.map <- as_ggplot(get_legend(hum.imp.map)) 
+```
+
+Make NAs 0 for the predictions. Need to check what it does in model.
+
+
+```{r}
+human[is.na(human)] <- 0
+```
+
+Distance to shore raster.
+
+```{r dist.shore}
+shore <- distance(landR, vect(land.1))/1000
+ggplot() +
+  geom_spatraster(data=shore) +
+  geom_sf(data=land, fill=NA, col="green")
+```
+
+Distance to colony raster.
+
+
+```{r}
+colony <- distance(landR, vect(xoxdel.1))/1000
+ggplot() +
+  geom_spatraster(data = colony) +
+  geom_sf(data=land, fill=NA, col="green")
+```
+
+Predictions for each chick category. First define function.
+
+```{r}
+ssf.map.pred <- function(model, n.chick){
+  if(is.na(n.chick)){
+    ssf.pred <- exp(
+      summary(model)$coef$cond["distShore",1]*shore +
+        summary(model)$coef$cond["distXOXDEL",1]*colony +
+        summary(model)$coef$cond["onLandN",1]*landR +
+        summary(model)$coef$cond["I(onLandN * HumanImpact)",1]*landR*human)
+  }else{
+    ssf.pred <- exp(
+      summary(model)$coef$cond["distShore",1]*shore +
+        summary(model)$coef$cond["distXOXDEL",1]*colony +
+        summary(model)$coef$cond["onLandN",1]*landR +
+        summary(model)$coef$cond["I(onLandN * HumanImpact)",1]*landR*human +
+        summary(model)$coef$cond["distXOXDEL:final_chick",1]*colony*n.chick +
+        #summary(model)$coef$cond["I(onLandN * HumanImpact):final_chick",1]*landR*human*n.chick
+        summary(model)$coef$cond["final_chick:I(onLandN * HumanImpact)",1]*landR*human*n.chick
+      )
+    }
+
+  return(ssf.pred)
+}
+```
+
+```{r}
+ssf.map.chick.ignored <- ssf.map.pred(ssf.rsri, NA)
+ssf.map.chick.0 <- ssf.map.pred(ssf.rsrifit, 0)
+ssf.map.chick.1 <- ssf.map.pred(ssf.rsrifit, 1)
+ssf.map.chick.2 <- ssf.map.pred(ssf.rsrifit, 2)
+ssf.map.chick.3 <- ssf.map.pred(ssf.rsrifit, 3)
+
+
+ssf.maps <- rast(list(chicks.ignored = ssf.map.chick.ignored,
+                      chick.0 = ssf.map.chick.0,
+                      chick.1 = ssf.map.chick.1,
+                      chick.2 = ssf.map.chick.2, 
+                      chick.3 = ssf.map.chick.3))
+```
+
+For now focus on land, since focus on human impact. So add NA to water.
+
+```{r}
+ssf.maps[landR == 0] <- NA
+```
+
+```{r}
+# For common color bar
+range(as.data.frame(ssf.maps))
+val.range <- range(as.data.frame(ssf.maps))
+# function for maps
+mapping <- function(model.name, col.box  = "black", plot.mar = plot.mar.l, 
+                    x.min.crop = x.min.crop.l, x.max.crop = x.max.crop.l, 
+                    y.min.crop = y.min.crop.l, y.max.crop = y.max.crop.l){
+  map <- ggplot() +
+    geom_spatraster(data = ssf.maps[[model.name]]) +
+    scale_fill_gradient2(low=ssf.min.col, mid=ssf.mid.col, high=ssf.max.col,
+                      midpoint = mean(val.range), limit = val.range, na.value = NA) +
+    geom_sf(data=land, fill=land.col) +
+    coord_sf(xlim = c(st_bbox(ssf.maps[[model.name]])[1]+x.min.crop,
+                      st_bbox(ssf.maps[[model.name]])[3])-x.max.crop,
+           ylim = c(st_bbox(ssf.maps[[model.name]])[2]+y.min.crop,
+                    st_bbox(ssf.maps[[model.name]])[4])-y.max.crop, expand = FALSE) +
+
+        theme(panel.background = element_rect(fill = water.col),
+              panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
+          legend.title = element_text(size = rel(legend.text.size)),
+          legend.text = element_text(size = rel(0.5)),
+          legend.position = "top",
+          axis.text = element_text(size = rel(0.5)),
+          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+    scale_y_continuous(breaks = seq(47, 50, by =0.5)) +
+    scale_x_continuous(breaks = seq(-125, -120, by = 0.5)) +
+    guides(fill = guide_colorbar(title = "SSF", order = 4,
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
+                                               legend.position = "top"))) +
+    theme(plot.margin = unit(plot.mar.l, 'lines'))
+  return(map)
+}
+```
+
+```{r}
+mapping("chick.0", plot.mar = c(0.5,1,0,1))
+mapping("chick.3", plot.mar = c(1,1,0,1))
+```
+
+```{r}
+map.chicks.ignored <- mapping(model.name = "chicks.ignored")
+map.chick.0 <- mapping(model.name = "chick.0", col.box  = chick.0.col)
+map.chick.1 <- mapping(model.name = "chick.1", col.box  = chick.1.col)
+map.chick.2 <- mapping(model.name = "chick.2", col.box  = chick.2.col)
+map.chick.3 <- mapping(model.name = "chick.3", col.box  = chick.3.col)
+```
+
+Create legend for maps.
+
+```{r}
+legend.plot.map <- as_ggplot(get_legend(mapping(model.name = "chicks.ignored"))) 
+```
+
+
+## Final figure 
+
+
+```{r Fig_4_gull_res, fig.height=6, fig.width=6, dev = 'png'}
+ggarrange(ggarrange(ggarrange(legend.plot.map, legend.human.map, nrow=1),
+                    legend.plot.rel.hum,
+                    nrow=2, widths = c(0.7, 0.5)),
+          ggarrange(
+            ggarrange(hum.imp.map, hum.rel.chicks, map.chicks.ignored, legend = "none",
+                     labels = c("A", "B", "C"), label.x = rep(0.2,3), label.y = rep(1, 3), 
+                     widths = c(0.27,0.46,0.27),
+                     font.label = list(size = 8, face="plain"),
+                     nrow = 1, ncol = 3),
+            ggarrange(map.chick.0, map.chick.1, map.chick.2, map.chick.3, legend = "none",
+                     labels = c("D", "E", "F", "G"), 
+                     label.x = rep(0.2,4), label.y = rep(0.97, 4), 
+                     font.label = list(size = 8, face="plain"),
+                     nrow = 1, ncol = 4),
+          nrow = 2, ncol = 1),
+          nrow = 2, heights = c(0.2,0.9))
+```
+
+
+# Sesson info
+
+```{r session.info}
+sessionInfo()
+```
+
+# Literature cited
+
+Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng M. (2021). An annual global terrestrial Human Footprint dataset from 2000 to 2018. figshare. Figure. https://doi.org/10.6084/m9.figshare.16571064.v7
+
+Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng, M. (2022). A global record of annual terrestrial human footprint dataset from 2000 to 2018. Scientific Data, 9, 176.
+
