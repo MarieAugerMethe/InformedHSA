@@ -67,4 +67,9 @@ A compiled version is also available in `0_review.html`.
 ## Simulations
 
 The code to reproduce simulations and the associated figures is available in two sets of files. 
-The first set of files are for 
+
+- The first set of files are for the resource selection function (RSF) simulations, 
+with `1_rsf_simulations.Rmd` containing the code and `1_rsf_simulations.html` being a compiled version of the code.
+
+- The second set of files are for the step selection function (SSF) simulations, 
+with `2_ssf_simulations.Rmd` containing the code and `2_ssf_simulations.html` being a compiled version of the code.
