@@ -132,11 +132,12 @@ The file is found in the `Covariates/HumanImpact` subfolder.
 The original data is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
 We clipped it to be the area around the study area and changed the projection to EPSG:26910 (WGS 84 / UTM zone 10N).
 Using the R package `terra` we filled missing values on the coast using:
-```
-humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
-humanImpact <- mask(humanImpact, land)
-```
-where `land` is the layer found in the `bc_UTM.shp` shapefile.
+
+  ```
+  humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
+  humanImpact <- mask(humanImpact, land)
+  ```
+  where `land` is the layer found in the `bc_UTM.shp` shapefile.
 
 # Code
 
