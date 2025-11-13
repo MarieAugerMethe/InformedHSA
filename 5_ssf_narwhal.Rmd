@@ -75,7 +75,7 @@ cat(kable(narwhal.data.table,
     file = "narwhal_data_summary.tex")
 ```
 
-Create a sf object for plotting. All of the layers should already projected in EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system.
+Create a sf object for plotting. All of the layers should already projected in the EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system.
 
 ```{r}
 chosen.proj <- 32617
@@ -99,21 +99,9 @@ land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
 
 
 ```{r prep.data.fx}
-# tracks <- as.data.frame(narwhals.sf)
-# cov <- NULL
-# fit.col.name <- "Healed.Scars"
-# id.col.name <- "ID"
-# t.name = "datetime_UTC"
-# x.name = "X_UTM"
-# y.name = "Y_UTM"
-# mask = list(land)
-# n.random.extra = 350
-# n.avail = 20
-# dt <- 60
-
 prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id", 
                           x.name = "X_UTM", y.name = "Y_UTM", t.name = "DatetimeLocal",
-                          mask = NULL, dt=15, n.random.extra = 50, n.avail = 30){
+                          mask = NULL, dt = 15, n.random.extra = 50, n.avail = 30){
   
   
   # Create observed steps
@@ -128,7 +116,7 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
   steps.avail$rp <- NULL
   
   # We want the parameters used to create the control steps to be from the same distribution
-  # We do not want the parameters to be taken each individual seperately
+  # We do not want the parameters to be taken for each individual separately
   data <- steps.avail %>% 
     dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), trk) %>%  
     unnest(cols= c(trk)) 
@@ -156,14 +144,13 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
     dplyr::select(!! sym(id.col.name), !!! syms(fit.col.name), rp) %>%  
     unnest(cols= c(rp))  
   
-  # Important: the `step_id_` will have erroneously similar names across individuals. We will change the name here.
+  # Important: the `step_id_` will have erroneously similar names across individuals. We change the name here.
   steps.avail$step_id_ <- paste(steps.avail[[id.col.name]], steps.avail$step_id_, sep="_")
   steps.avail.sf <- st_as_sf(filter(steps.avail, !is.na(ta_)), coords = c("x2_", "y2_"), remove=FALSE)
   st_crs(steps.avail.sf) <- chosen.proj
   
   
   # Remove the control points that are in habitat that are masked (e.g., land for narwhals)
-
   for(i in seq_along(mask)){
     steps.avail.sf$mask <- rowSums(st_intersects(steps.avail.sf, mask[[i]], sparse=FALSE))
     steps.avail.sf <- subset(steps.avail.sf, !mask)
@@ -178,7 +165,8 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
   steps.avail.11$cos_ta <- cos(steps.avail.11$ta_)
   steps.avail.11$case_num <- as.numeric(steps.avail.11$case_)
   
-  return(list(steps.id = steps.id, steps.avail = steps.avail.11, gamma_par=gamma_par, vonmises_par=vonmises_par))
+  return(list(steps.id = steps.id, steps.avail = steps.avail.11, 
+              gamma_par=gamma_par, vonmises_par=vonmises_par))
 }
 ```
 
@@ -237,7 +225,7 @@ Function to fit a SSF.
 fit.poisson.rs <- function(formula, data, 
                            start = list(theta = c(log(1e6), 0)), 
                            map = list(theta = factor(c(NA, 1)))){
-  ssf <- glmmTMB(formula, family=poisson, 
+  ssf <- glmmTMB(formula, family = poisson, 
                  data = data, start = start, map = map)
   return(ssf)
 }
@@ -315,17 +303,17 @@ estimates <- "{estimate}{stars}"
 statistics <- "({std.error})"
 ```
 
-We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to locations assumed to be available to the animal at that time (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, these SSFs model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson ($\text{Po}$) model framework outlined in Muff et al. (2020).
+We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, these SSFs model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
 
 Model 1 (baseline model): Scars ignored
 
-The SSF fitted models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
+The SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j}  + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) + \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
-\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}),$$
+\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
-where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modeled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2015), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises. Here, $\beta_2$, $\beta_3$, $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
+where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2015), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
 
 ```{r, message = FALSE}
 ssf.noscars <- fit.poisson.rs(formula = case_num ~ -1 + 
@@ -348,28 +336,29 @@ There are many warnings (not shown in compiled version), but these are common wh
 ssf.noscars$fit$convergence
 ```
 
-No convergence problem.
+No converge problem messages.
 
 The three other models use healed scars as a health proxy by including interactions in the model with the variable $s_n$, which takes the value of 1 when healed scars are present on the individual $n$ and 0 when individual $n$ has no healed scars.
 
 Model 2: Scar information in the selection function
 
-As a base, we are using model 1 described above. However, to allow for the selection function to differ between individuals with and without scars, we include an interaction between presence of scars, $s_n$, and distance to shore at the end of the step, $d_{n,t,j}$: 
+As a base, we are using model 1 described above. However, to allow for the selection function to differ between individuals with and without scars, we include an interaction between presence of scars $s_n$ and distance to shore at the end of the step, $d_{n,t,j}$: 
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_5 s_n d_{n,t,j} + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) + \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
-\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}),$$
+\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
 where $\beta_5$ represents the coefficient quantifying the relationship between the presence of scars and distance to shore.
 
-```{r, message = FALSE}
+```{r, message=FALSE}
 ssf.sel.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
                                    # Habitat selection
                                    distShore.end + 
                                    distShore.end:Healed.Scars +
                                    # Movement kernel
                                    sl_ + distShore.start:sl_ + 
-                                   ln_sl  + distShore.start:ln_sl  + I(distShore.start^2):ln_sl  + 
+                                   ln_sl  + distShore.start:ln_sl  +
+                                   I(distShore.start^2):ln_sl  + 
                                    cos_ta + 
                                    (1 | step_id_) +
                                    (0 + distShore.end | ID), 
@@ -383,19 +372,19 @@ There are many warnings (not shown in compiled version), but these are common wh
 ssf.sel.healed$fit$convergence
 ```
 
-No convergence problem.
+No converge problem messages.
 
 Model 3: Scar information in the movement kernel
 
-As a base, we are using model 1 described above. However, to allow for the relationship with speed and distance to shore to to differ between individuals with and without scars, we include an interaction between the presence of scars, $s_n$, step length, $l_{n,t,j}$, and distance to shore at the start of the step, $d_{n,t-1,j}$: 
+As a base, we are using model 1 described above. However, to allow for the relationship with speed and distance to shore to differ between individuals with and without scars, we include an interaction between the presence of scars $s_n$, step length $l_{n,t,j}$, and distance to shore at the start of the step $d_{n,t-1,j}$: 
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\ \beta_6 s_n d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) +  \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
-\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}),$$
+\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
 where $\beta_6$ quantifies the relationship between the scars, step length, and distance to shore.
 
-```{r, message = FALSE}
+```{r, message=FALSE}
 ssf.mov.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
                                    # Habitat selection
                                    distShore.end + 
@@ -416,7 +405,7 @@ There are many warnings (not shown in compiled version), but these are common wh
 ssf.mov.healed$fit$convergence
 ```
 
-No convergence problem.
+No converge problem messages.
 
 Model 4: Scar information in both the selection function and the movement kernel
 
@@ -424,7 +413,7 @@ To allow the presence of scars to affect both the selection function and the mov
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_5 s_n d_{n,t,j} + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\ \beta_6 s_n d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) +  \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
-\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Po}(\mu_{n,t,j}).$$
+\beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}).$$
 
 ```{r, message = FALSE}
 ssf.mov.sel.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
@@ -433,7 +422,8 @@ ssf.mov.sel.healed <- fit.poisson.rs(formula = case_num ~ -1 +
                                        # Movement kernel
                                        sl_ + distShore.start:sl_ + 
                                        distShore.start:Healed.Scars:sl_ + 
-                                       ln_sl  + distShore.start:ln_sl  + I(distShore.start^2):ln_sl  + 
+                                       ln_sl  + distShore.start:ln_sl  +
+                                       I(distShore.start^2):ln_sl  + 
                                        cos_ta + 
                                        (1|step_id_) +
                                        (0 + distShore.end | ID),
@@ -447,6 +437,7 @@ There are many warnings (not shown in compiled version), but these are common wh
 ssf.mov.sel.healed$fit$convergence
 ```
 
+No converge problem messages.
 
 ```{r}
 AICcTable(ssf.noscars,
@@ -475,7 +466,7 @@ modelsummary(models,
 ```
 
 ```{r par.est.latex}
-# To output for latex
+# To create output for latex
 options("modelsummary_format_numeric_latex" = "plain")
 table.latex <- modelsummary(models,
              estimate = estimates,
@@ -500,7 +491,7 @@ round(summary(ssf.noscars)$coef$cond["distShore.end", c("Estimate", "Std. Error"
 # With scar info in movement kernel
 round(summary(ssf.mov.healed)$coef$cond["distShore.end", c("Estimate", "Std. Error")], 3)
 ```
-A bit, but not massively.
+A bit, but not much.
 
 # Interpreting the results
 
@@ -515,14 +506,10 @@ b3_kappa <- narwhals.steps.avail$vonmises_par$params$kappa
 Functions to calculate the estimated parameters of the gamma.
 
 ```{r}
-# model <- ssf.noscars
-# model <- ssf.mov.healed
-# dist <- seq(min(all.steps$distShore.start), ceiling(max(all.steps$distShore.start)), by=0.1)
 shape.ssf <- function(b1_shape, model, dist){
   gamma.shape.ssf <- b1_shape + 
     summary(model)$coef$cond["ln_sl",1] +
     dist*summary(model)$coef$cond["distShore.start:ln_sl",1]  + 
-    #dist*summary(model)$coef$cond["ln_sl:distShore.start",1]  + 
     (dist^2)*summary(model)$coef$cond["ln_sl:I(distShore.start^2)",1] 
   return(gamma.shape.ssf)
 }
@@ -544,7 +531,7 @@ scale.ssf <- function(b2_scale, model, dist, healed = FALSE){
 }
 
 
-# no need for dist, no other covariate has an effect on tangle
+# Simple for the angle distribution, since no other covariate has an effect on the angle
 kappa.ssf <- function(b3_kappa, model){
   vmises.kappa.ssf <- b3_kappa + summary(model)$coef$cond["cos_ta",1]
   return(vmises.kappa.ssf)
@@ -559,25 +546,34 @@ sl.ssf <- function(b1_shape, b2_scale, model, dist, healed = FALSE){
   sd.sl <- sqrt(gamma.shape.ssf*(gamma.scale.ssf^2))
   return(cbind(mean.sl, sd.sl))
 }
-
 ```
 
+Colours for plots.
 
 ```{r}
 pred.col <- c("hotpink", "blue")
 names(pred.col) <- c("TRUE", "FALSE")
 ```
 
+Calculate the predicted mean values for plots.
 
 ```{r}
-dist.seq <- seq(min(all.steps$distShore.start), ceiling(max(all.steps$distShore.start)), by=0.1)
+dist.seq <- seq(min(all.steps$distShore.start), 
+                ceiling(max(all.steps$distShore.start)), 
+                by = 0.1)
 
-pred.mean.noscars <- sl.ssf(b1_shape, b2_scale, ssf.noscars, dist.seq)
-pred.mean.sel.healed <- sl.ssf(b1_shape, b2_scale, ssf.sel.healed, dist.seq)
-pred.mean.mov.healed.T <- sl.ssf(b1_shape, b2_scale, ssf.mov.healed, dist.seq, healed = TRUE)
-pred.mean.mov.healed.F <- sl.ssf(b1_shape, b2_scale, ssf.mov.healed, dist.seq, healed = FALSE)
-pred.mean.mov.sel.healed.T <- sl.ssf(b1_shape, b2_scale, ssf.mov.sel.healed, dist.seq, healed = TRUE)
-pred.mean.mov.sel.healed.F <- sl.ssf(b1_shape, b2_scale, ssf.mov.sel.healed, dist.seq, healed = FALSE)
+pred.mean.noscars <- sl.ssf(b1_shape, b2_scale, ssf.noscars, 
+                            dist.seq)
+pred.mean.sel.healed <- sl.ssf(b1_shape, b2_scale, ssf.sel.healed, 
+                               dist.seq)
+pred.mean.mov.healed.T <- sl.ssf(b1_shape, b2_scale, ssf.mov.healed, dist.seq, 
+                                 healed = TRUE)
+pred.mean.mov.healed.F <- sl.ssf(b1_shape, b2_scale, ssf.mov.healed, dist.seq, 
+                                 healed = FALSE)
+pred.mean.mov.sel.healed.T <- sl.ssf(b1_shape, b2_scale, ssf.mov.sel.healed, dist.seq,
+                                     healed = TRUE)
+pred.mean.mov.sel.healed.F <- sl.ssf(b1_shape, b2_scale, ssf.mov.sel.healed, dist.seq,
+                                     healed = FALSE)
 
 models.pred <- data.frame(cbind(dist.seq, 
                                 pred.mean.noscars, 
@@ -598,6 +594,9 @@ colnames(models.pred) <- c("dist.seq",
 models.pred[-1] <- models.pred[-1]/1000
 ```
 
+
+Observed values for the plots.
+
 ```{r}
 all.steps$scars <- as.logical(all.steps$Healed.Scars)
 all.steps$bin <- as.factor(round(all.steps$distShore.start))
@@ -606,13 +605,16 @@ dist.max <- max(all.steps$distShore.start)
 bb <- 1
 breaks <- seq(0, dist.max+bb, bb)
 
-all.steps <- all.steps %>% mutate(new_bin = cut(distShore.start, breaks=breaks),
-                                  new_bin_mid = breaks[findInterval(distShore.start, breaks)] + bb/2)
+all.steps <- all.steps %>% mutate(new_bin = cut(distShore.start, breaks = breaks),
+                                  new_bin_mid = 
+                                    breaks[findInterval(distShore.start, breaks)] + bb/2)
 
 
 mean.obs.sl.all <- aggregate(sl_ ~ new_bin_mid, subset(all.steps, case_num ==1), mean)
-mean.obs.sl.healed.T <- aggregate(sl_ ~ new_bin_mid, subset(all.steps, case_num ==1 & Healed.Scars == 1), mean)
-mean.obs.sl.healed.F <- aggregate(sl_ ~ new_bin_mid, subset(all.steps, case_num ==1 & Healed.Scars == 0), mean)
+mean.obs.sl.healed.T <- aggregate(sl_ ~ new_bin_mid, 
+                                  subset(all.steps, case_num ==1 & Healed.Scars == 1), mean)
+mean.obs.sl.healed.F <- aggregate(sl_ ~ new_bin_mid, 
+                                  subset(all.steps, case_num ==1 & Healed.Scars == 0), mean)
 
 col.all <- "darkgrey"
 ```
@@ -634,67 +636,85 @@ mov.plot <- function(names, healed){
   if(!healed){
     m.plot <- ggplot() + 
       geom_boxplot(data = subset(all.steps, case_num ==1), 
-                   aes(x=new_bin_mid, y=sl_/1000, group=as.factor(new_bin_mid)), 
+                   aes(x = new_bin_mid, y=sl_/1000, 
+                       group = as.factor(new_bin_mid)), 
                    fill = alpha(col.all,0.5),
                    outlier.size = out.size,
                    linewidth = 0.2) +
-      geom_point(data= mean.obs.sl.all, aes(x=new_bin_mid, y = sl_/1000), 
-                 col=col.all, pch=17, size = 0.5) +
-      geom_line(data= models.pred, aes(x=dist.seq, y = !! sym(paste(names, "mean", sep="."))))
+      geom_point(data = mean.obs.sl.all, 
+                 aes(x = new_bin_mid, y = sl_/1000), 
+                 col = col.all, pch=17, size = 0.5) +
+      geom_line(data= models.pred, 
+                aes(x=dist.seq, y = !! sym(paste(names, "mean", sep="."))))
   }else{
     m.plot <- ggplot() + 
-      geom_boxplot(data = subset(all.steps, case_num ==1 & Healed.Scars == TRUE), 
-                   aes(x=new_bin_mid, y=sl_/1000, group=as.factor(new_bin_mid)), 
-                   fill = alpha(pred.col["TRUE"],0.5), 
+      geom_boxplot(data = subset(all.steps, 
+                                 case_num == 1 & Healed.Scars == TRUE), 
+                   aes(x = new_bin_mid, y = sl_/1000, 
+                       group = as.factor(new_bin_mid)), 
+                   fill = alpha(pred.col["TRUE"], 0.5), 
                    outlier.colour = pred.col["TRUE"], 
                    outlier.size = out.size,
-                   position = position_nudge(x=-nudge.v), 
+                   position = position_nudge(x = -nudge.v), 
                    width = 0.25,
                    linewidth = 0.2) +
-      geom_point(data= mean.obs.sl.healed.T, aes(x=new_bin_mid-nudge.v, y = sl_/1000), 
-                 col=pred.col["TRUE"], pch=17, size = 0.5) +
-      geom_line(data= models.pred, aes(x=dist.seq, y = !! sym(paste(names, "T.mean", sep="."))), col=pred.col["TRUE"]) +
-      geom_boxplot(data = subset(all.steps, case_num ==1 & Healed.Scars == FALSE), 
-               aes(x=new_bin_mid, y=sl_/1000, group=as.factor(new_bin_mid)), 
+      geom_point(data = mean.obs.sl.healed.T, 
+                 aes(x = new_bin_mid-nudge.v, y = sl_/1000), 
+                 col = pred.col["TRUE"], pch = 17, size = 0.5) +
+      geom_line(data = models.pred, 
+                aes(x = dist.seq, y = !! sym(paste(names, "T.mean", sep="."))),
+                col = pred.col["TRUE"]) +
+      geom_boxplot(data = subset(all.steps, 
+                                 case_num == 1 & Healed.Scars == FALSE), 
+               aes(x = new_bin_mid, y = sl_/1000, 
+                   group = as.factor(new_bin_mid)), 
                fill = alpha(pred.col["FALSE"],0.5), 
                outlier.size = out.size,
                outlier.colour = pred.col["FALSE"],
-               position = position_nudge(x=+nudge.v), 
+               position = position_nudge(x = +nudge.v), 
                width = 0.25,
                linewidth = 0.2) +
-      geom_point(data= mean.obs.sl.healed.F, aes(x=new_bin_mid+nudge.v, y = sl_/1000), 
-                 col=pred.col["FALSE"], pch=17, size = 0.5) +
-      geom_line(data= models.pred, aes(x=dist.seq, y = !! sym(paste(names, "F.mean", sep="."))), col=pred.col["FALSE"])
+      geom_point(data = mean.obs.sl.healed.F, 
+                 aes(x = new_bin_mid+nudge.v, y = sl_/1000), 
+                 col = pred.col["FALSE"], pch = 17, size = 0.5) +
+      geom_line(data = models.pred, 
+                aes(x = dist.seq, y = !! sym(paste(names, "F.mean", sep="."))),
+                col = pred.col["FALSE"])
   }
   
   m.plot <- m.plot + xlab("Distance to shore (km)") + ylab("Step length (km)") + 
     guides(Healed.T = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
-                                                  gp = grid::gpar(fill = pred.col["TRUE"], col=NA)), 
+                                                  gp = grid::gpar(fill = pred.col["TRUE"],
+                                                                  col = NA)), 
                                  title = "With healed scars", order = 3, 
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top")),
            Healed.F = guide_custom(grid::circleGrob(r = unit(0.1, "cm"),
-                                                  gp = grid::gpar(fill = pred.col["FALSE"], col=NA)), 
+                                                  gp = grid::gpar(fill = pred.col["FALSE"],
+                                                                  col = NA)), 
                                  title = "Without scars", order = 2, 
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top")),
            No.scars = guide_custom(grid::circleGrob(r = unit(0.1, "cm"), 
-                                                  gp = grid::gpar(fill = "black", col=NA)), 
+                                                  gp = grid::gpar(fill = "black", 
+                                                                  col = NA)), 
                                  title = "Ignoring scars", order = 1, 
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
     scale_x_continuous(expand = c(0, 0)) +
     theme_classic() + 
     theme(legend.position = "top",
           axis.title = element_text(size = rel(0.7)),
           axis.text = element_text(size = rel(0.5)),
-          panel.border = element_rect(colour = "black", fill=NA, linewidth = 0.5),
+          panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
           axis.line = element_line(colour = 'black', linewidth = 0.1),
           axis.ticks = element_line(colour = 'black', linewidth = 0.1))
     
   return(m.plot)
 }
-
 ```
 
 ```{r}
@@ -709,7 +729,8 @@ mov.plot("mov.sel.healed", healed= TRUE)
 First create a distance to shore raster. 
 
 ```{r cache=TRUE}
-rast.grid <- rast(extent = ext(narwhals.avail.sf), nrows=150, ncols=150, crs = crs(land))
+rast.grid <- rast(extent = ext(narwhals.avail.sf), 
+                  nrows=150, ncols=150, crs = crs(land))
 landR <- as.numeric(rasterize(land, rast.grid))
 landR[is.na(landR)] <- 0
 
@@ -720,18 +741,22 @@ shore.w <- shore
 shore.w[landR == 1] <- NA
 ```
 
-Prediction map of SSF using the naive method (sensu Signer et al. 2017). Habitat selection coefficient * covariate. Could look at simulation based method, but it gets at the utilization distribution, and it is very challenging to implement in a environment with lots of small fjords. Given that we want to show the selection, the naive method appears more adequate.
-
+Prediction map of SSF using the naive method (sensu Signer et al. 2017). Habitat selection coefficient * covariate. Below we will look at the utilization distribution (UD).
 
 ```{r}
 ssf.map.noscars <- exp(summary(ssf.noscars)$coef$cond["distShore.end",1] * shore.w)
-ssf.map.sel.healed.F <- exp((summary(ssf.sel.healed)$coef$cond["distShore.end",1] * shore.w))
-ssf.map.sel.healed.T <- exp((summary(ssf.sel.healed)$coef$cond["distShore.end",1] * shore.w) + 
-  (summary(ssf.sel.healed)$coef$cond["distShore.end:Healed.Scars",1] * shore.w))
-ssf.map.mov.healed <- exp(summary(ssf.mov.healed)$coef$cond["distShore.end",1] * shore.w)
-ssf.map.mov.sel.healed.F <- exp((summary(ssf.mov.sel.healed)$coef$cond["distShore.end",1] * shore.w))
-ssf.map.mov.sel.healed.T <- exp((summary(ssf.mov.sel.healed)$coef$cond["distShore.end",1] * shore.w) + 
-  (summary(ssf.mov.sel.healed)$coef$cond["distShore.end:Healed.Scars",1] * shore.w))
+ssf.map.sel.healed.F <- 
+  exp((summary(ssf.sel.healed)$coef$cond["distShore.end",1] * shore.w))
+ssf.map.sel.healed.T <- 
+  exp((summary(ssf.sel.healed)$coef$cond["distShore.end",1] * shore.w) +
+        (summary(ssf.sel.healed)$coef$cond["distShore.end:Healed.Scars",1] * shore.w))
+ssf.map.mov.healed <- 
+  exp(summary(ssf.mov.healed)$coef$cond["distShore.end",1] * shore.w)
+ssf.map.mov.sel.healed.F <- 
+  exp((summary(ssf.mov.sel.healed)$coef$cond["distShore.end",1] * shore.w))
+ssf.map.mov.sel.healed.T <- 
+  exp((summary(ssf.mov.sel.healed)$coef$cond["distShore.end",1] * shore.w) +
+        (summary(ssf.mov.sel.healed)$coef$cond["distShore.end:Healed.Scars",1] * shore.w))
 
 
 ssf.maps <- rast(list(noscars = ssf.map.noscars, 
@@ -742,17 +767,18 @@ ssf.maps <- rast(list(noscars = ssf.map.noscars,
                       mov.sel.healed.T = ssf.map.mov.sel.healed.T))
 ```
 
-
-Each plot separately
+Function to plot each plot separately.
 
 ```{r}
-land.col <- "floralwhite"#'beige'
+land.col <- "floralwhite"
 ssf.min.col <- "#ffffcc"
 ssf.mid.col <- "#41b6c4"
 ssf.max.col <- "#0c2c84"
-# For common color bar
+
+# For common colour bar
 val.range <- range(as.data.frame(ssf.maps))
-# function for maps
+
+# Function for maps
 mapping <- function(model.name, col.box){
   map <- ggplot() +
     geom_spatraster(data = ssf.maps[[model.name]]) +
@@ -777,21 +803,26 @@ mapping <- function(model.name, col.box){
 }
 ```
 
+Example plot.
+
 ```{r}
 mapping("sel.healed.F", pred.col["FALSE"])
 ```
 
-Create legends
+Create legends. 
+
 ```{r}
 legend.plot.map <- as_ggplot(get_legend(mapping("mov.sel.healed.F", "black"))) 
-legend.plot.mov <- as_ggplot(get_legend(mov.plot("mov.sel.healed", healed= TRUE))) 
+legend.plot.mov <- as_ggplot(get_legend(mov.plot("mov.sel.healed", 
+                                                 healed = TRUE))) 
 ```
 
-## Final figure with both movement and habitat selection
+## Alternative figure with both movement and habitat selection
 
-```{r Fig_5_alternative_narwhal_res_, fig.height=6, fig.width=6, dev = 'png'}
+```{r Fig_5_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
 ggarrange(
-  ggarrange(legend.plot.mov, legend.plot.map, nrow=1, widths = c(0.6, 0.4)),
+  ggarrange(legend.plot.mov, legend.plot.map, nrow = 1, 
+            widths = c(0.6, 0.4)),
   ggarrange(
     # Column 1 Model without healed scars 
     ggarrange(mov.plot("noscars", healed= FALSE), 
@@ -806,41 +837,57 @@ ggarrange(
             labels = c("C", "D", "E"), 
             label.x = c(0.13, rep(0.175, 2)), label.y = c(1.05, rep(0.92,2)),font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.healed", healed= TRUE),
-              mapping("mov.healed", "black"), nrow=1, legend = "none", widths = c(0.55,0.45),
-              labels = c("F", "G"), label.x = c(0.13, 0.27), label.y = 1.05,font.label = list(size = 8, face="plain")),
+              mapping("mov.healed", "black"), nrow=1, legend = "none", 
+              widths = c(0.55,0.45),
+              labels = c("F", "G"), label.x = c(0.13, 0.27), label.y = 1.05,
+              font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.sel.healed", healed= TRUE), 
               mapping("mov.sel.healed.F", pred.col["FALSE"]),  
               mapping("mov.sel.healed.T", pred.col["TRUE"]), 
             nrow=1, legend = "none", widths = c(0.55, 0.225 ,0.225),
-            labels = c("H", "I", "J"), label.x = c(0.13, rep(0.195, 2)), label.y = c(1.05, rep(0.92,2)),
+            labels = c("H", "I", "J"), 
+            label.x = c(0.13, rep(0.195, 2)), label.y = c(1.05, rep(0.92,2)),
             font.label = list(size = 8, face="plain")),
-    ncol=1),
-   ncol = 1 , heights = c(0.1, 1)
+    ncol = 1),
+  ncol = 1 , heights = c(0.1, 1)
 )
 ```
 
-# Utilization Distribution 
+# Utilization Distribution
 
-We can also look at the UD obtained from the step selection analysis. To estimate the UD, we use eq (10) in Potts and Börger (2022) and follow procedure defined in Appendix E of their paper. Specifically, we use the exact method to derive the UD from the movement kernel, involving eigenvalues and eigenvectors. While we already have the selection function for each model, we also need the corresponding movement distribution function to get the movement kernel as defined in Potts and Börger (2022). Since narwhals are marine mammals, we will only consider locations in the raster that correspond to water cells.
+We can also look at the UD obtained from the step selection analysis. To estimate the UD, we used eq (10) in Potts and Börger (2022) and followed the procedure defined in Appendix E of their paper. Specifically, we use the exact method to derive the UD from the movement kernel, involving eigenvalues and eigenvectors.
+We note that using a simulation based approach is difficult for this case study, 
+because the narwhals inhabit narrow and intricate fjords. Thus the simulation need to run a long time to explore the full area.
+While we already have the selection function for each model, we also need the corresponding movement distribution function to get the movement kernel. 
+Since narwhals are marine mammals, we will only consider locations in the raster that correspond to water cells.
 
 ```{r get movement kernel, general parameters}
-water_cells <- which(values(landR) == 0) # only selects location that are on water
-coords_proj <- xyFromCell(rast.grid, water_cells) # extract their corresponding coordinates in the raster
-n <- nrow(coords_proj) # Number of locations to evaluate to get the movement kernel that will be a n x n matrix. row is start point and column is end point of the movement.
+# Selects location that are on water
+water_cells <- which(values(landR) == 0) 
+# Extract their corresponding coordinates in the raster
+coords_proj <- xyFromCell(rast.grid, water_cells) 
+# Number of locations to evaluate to get the movement kernel that will be a n x n matrix
+# row is start point and column is end point of the movement
+n <- nrow(coords_proj) 
 
 # Derive distance to shore covariate
-shore_vals <- values(shore.w)[water_cells]  # Covariate that is used in all models: distance to shore
-shore_vals_end <- matrix(shore_vals, nrow = n, ncol = n, byrow=TRUE) # each column has the same value: corresponding to the distance to shore at the end point (column = endpoint). 
-shore_vals_start <- matrix(shore_vals, nrow = n, ncol = n) # each row as same value: corresponding to the distance to shore at the start point. 
+# Covariate that is used in all models: distance to shore
+shore_vals <- values(shore.w)[water_cells]  
+# Each column has the same value: corresponding to the distance to shore at the end point
+shore_vals_end <- matrix(shore_vals, nrow = n, ncol = n, byrow = TRUE) 
+# Each row as same value: corresponding to the distance to shore at the start point. 
+shore_vals_start <- matrix(shore_vals, nrow = n, ncol = n) 
 
-# Derive the matrix of step length: row i and col j corresponds to step length from ith location (start) -> jth location (end).
-sf_points <- st_as_sf(as.data.frame(coords_proj), coords = c("x", "y"), crs = chosen.proj)
+# Derive the matrix of step length: 
+# row i and col j corresponds to step length from ith location (start) -> jth location (end)
+sf_points <- st_as_sf(as.data.frame(coords_proj), 
+                      coords = c("x", "y"), crs = chosen.proj)
 step_length_matrix <- st_distance(sf_points, sf_points)/1000
-step_length_matrix <- matrix(as.numeric(step_length_matrix), nrow=nrow(step_length_matrix))
-
+step_length_matrix <- matrix(as.numeric(step_length_matrix), 
+                             nrow = nrow(step_length_matrix))
 ```
 
-The movement depends on the individuals' starting locations, so we use shore_vals_start as the matrix of covariates for the movement parameters. For each model, we now derive the associated movement parameters.
+The movement depends on the individuals' starting locations, so we use `shore_vals_start` as the matrix of covariates for the movement parameters. For each model, we now derive the associated movement parameters.
 
 ```{r model parameters}
 # For Model 1: ssf.map.noscars
@@ -898,9 +945,10 @@ step_prob_matrix4_F <- dgamma(step_length_matrix,
 ```
 
 
-We can now derive the movement kernel. Note that we do not incorporate turning angles, effectively ignoring directional correlation in the data. This simplification should not introduce minimal bias because the effect of correlation becomes negligible when inferring long-term behaviour. As Hawkes (2009) observes "As sampling is carried out less frequently or after a large number of steps, CRW increasingly comes to resemble uncorrelated random walk (Okubo 1980). That is relevant in exploring the implications of the correlation identiﬁed in movement behaviour because CRW may generate distance distributions similar to or the same as those of uncorrelated random walk over time-scales relevant to dispersal". In other words, over large scales and long time periods, the habitat use patterns of a correlated random walk are similar to those of an uncorrelated walk. Since the UD reflects the stationary equilibrium of habitat use patterns, neglecting the correlation in movement data when estimating it, should only introduce minimal bias.
+We can now derive the movement kernel. Note that we do not incorporate turning angles, effectively ignoring directional correlation in the data. This simplification should introduce minimal bias because the effect of correlation becomes negligible when inferring long-term behaviour. 
+As Hawkes (2009) observes "As sampling is carried out less frequently or after a large number of steps, CRW increasingly comes to resemble uncorrelated random walk (Okubo 1980). That is relevant in exploring the implications of the correlation identiﬁed in movement behaviour because CRW may generate distance distributions similar to or the same as those of uncorrelated random walk over time-scales relevant to dispersal". In other words, over large scales and long time periods, the habitat use patterns of a correlated random walk are similar to those of an uncorrelated walk. Since the UD reflects the stationary equilibrium of habitat use patterns, neglecting the correlation in movement data when estimating it, should only introduce minimal bias.
 
-Additionally, including turning angles would increase the dimensionality of the transition matrix, making it an n x n x M array, where $M$ refers to the number of discrete bins used to represent the possible angles from $0$ to $2\pi$. This would make matrix inversion computationally unfeasible, so ignoring turning angles is both theoretically reasonable and practically necessary.
+Additionally, including turning angles would increase the dimensionality of the transition matrix, making it an n x n x M array, where $M$ refers to the number of discrete bins used to represent the possible angles from $0$ to $2\pi$. This would make matrix inversion computationally infeasible, so ignoring turning angles is both theoretically reasonable and practically necessary.
 
 ```{r movement_kernel:model1_noscar}
 movkernel_matrix <- step_prob_matrix1*
@@ -971,9 +1019,9 @@ eigen_raster1 <- rast.grid
 values(eigen_raster1) <- NA
 
 # Assign eigenvector values to the water cells
-eigen_raster1[water_cells] <- Re(eigenvector)  # removes imaginary parts ??? 
+eigen_raster1[water_cells] <- Re(eigenvector) 
 
-# Optionally normalize again if needed
+# Normalize again
 values(eigen_raster1)[water_cells] <- values(eigen_raster1)[water_cells] / 
                                      sum(values(eigen_raster1)[water_cells], na.rm = TRUE)
 return(eigen_raster1)
@@ -1001,31 +1049,10 @@ ud.rasters <- list(
   sel.mov.healed.T = eigen_raster4_T,
   sel.mov.healed.F = eigen_raster4_F
 )
-# 
-# all_min <- min(sapply(rasters, function(r) minmax(r)[1]))
-# all_max <- max(sapply(rasters, function(r) minmax(r)[2]))
-# cols <- colorRampPalette(c(ssf.min.col, ssf.mid.col, ssf.max.col))(100)
-# 
-# # Plot each with the same zlim and col
-# par(mfrow = c(3,3))  # adjust grid layout
-# plot(eigen_raster1, main = "Stationary Distribution: no scar",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster2_F, main = "Stationary Distribution: sel.healed.F",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster2_T, main = "Stationary Distribution: sel.healed.T",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster3_T, main = "Stationary Distribution: mov.healed.T",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster3_F, main = "Stationary Distribution: mov.healed.F",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster4_T, main = "Stationary Distribution: mov.sel.healed.T",
-#      col = cols, zlim = c(all_min, all_max))
-# plot(eigen_raster4_F, main = "Stationary Distribution: mov.sel.healed.F",
-#      col = cols, zlim = c(all_min, all_max))
 ```
 
 
-Plot with ggplot to combine
+Function to map UDs.
 
 ```{r UDforFinal}
 val.range.UD <- range(as.data.frame(ud.rasters))
@@ -1055,12 +1082,15 @@ mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0
 mapping.UD("sel.healed.F", pred.col["FALSE"])
 ```
 
-Create legends
+Create legends.
+
 ```{r}
 legend.plot.map.ud <- as_ggplot(get_legend(mapping.UD("sel.healed.F", "black")))
 ```
 
-```{r Fig_5_narwhal_res_ud, fig.height=6, fig.width=6, dev = 'png'}
+Final figure with UDs and means of step lengths.
+
+```{r Fig_5_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
 ggarrange(
   ggarrange(legend.plot.mov, legend.plot.map.ud, nrow=1, widths = c(0.6, 0.4)),
   ggarrange(
@@ -1095,7 +1125,7 @@ ggarrange(
 )
 ```
 
-Looking at difference between the two UDs.
+Function to map the difference between the UDs of narwhals with and without scars.
 
 ```{r ud.diff.fx}
 mapping.UD.diff <- function(raster.dif,
@@ -1103,20 +1133,21 @@ mapping.UD.diff <- function(raster.dif,
                             plot.mar.l.UD = c(0.2, 0.2, 0.2, 0.2)){
   map <- ggplot() +
     geom_spatraster(data = raster.dif) +
-    scale_fill_gradient2(low=ssf.min.col, mid=ssf.mid.col, high=ssf.max.col, na.value = NA) +
+    scale_fill_gradient2(low = ssf.min.col, 
+                         mid = ssf.mid.col, 
+                         high = ssf.max.col, na.value = NA) +
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(raster.dif)[1], st_bbox(raster.dif)[3]),
            ylim = c(st_bbox(raster.dif)[2], st_bbox(raster.dif)[4]), expand = FALSE) +
     theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
-          # legend.title = element_text(size = rel(legend.text.size)),
-          # legend.text = element_text(size = rel(0.5)),
-          # legend.position = "top",
           axis.text = element_text(size = rel(0.5)),
           axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
-    guides(fill = guide_colorbar(title = "Diff. in UD", order = 4,
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+    guides(fill = guide_colorbar(title = "Diff. in UD", 
+                                 order = 4,
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
     theme(plot.margin = unit(plot.mar.l.UD, 'lines'))
   return(map)
@@ -1124,30 +1155,16 @@ mapping.UD.diff <- function(raster.dif,
 ```
 
 
-```{r Fig_SupMat4_narwhal_ud_diff_sel, fig.height=3, fig.width=6, dev = 'png'}
+```{r Fig_SupMat4_narwhal_ud_diff_sel, fig.height=3, fig.width=6, dev='png'}
 mapping.UD.diff(eigen_raster2_T - eigen_raster2_F)
 ```
 
-```{r Fig_SupMat5_narwhal_ud_diff_mov, fig.height=3, fig.width=6, dev = 'png'}
+```{r Fig_SupMat5_narwhal_ud_diff_mov, fig.height=3, fig.width=6, dev='png'}
 mapping.UD.diff(eigen_raster3_T - eigen_raster3_F)
 ```
 
-```{r Fig_SupMat6_narwhal_ud_diff_sel_mov, fig.height=3, fig.width=6, dev = 'png'}
+```{r Fig_SupMat6_narwhal_ud_diff_sel_mov, fig.height=3, fig.width=6, dev='png'}
 mapping.UD.diff(eigen_raster4_T - eigen_raster4_F)
-```
-
-
-Check the UDs in terms of their correlation to one another. To see how different they rae.
-
-```{r correlation}
-cor(values(eigen_raster2_F), values(eigen_raster2_T), "complete.obs") # selection only
-cor(values(eigen_raster3_F), values(eigen_raster3_T), "complete.obs") # movement only
-cor(values(eigen_raster4_F), values(eigen_raster4_T), "complete.obs") # both
-
-
-cor(values(eigen_raster4_F),values(eigen_raster3_F),"complete.obs") # movement only vs both mov and selection
-cor(values(eigen_raster4_T),values(eigen_raster3_T),"complete.obs") # movement only vs both mov and selection
-
 ```
 
 # Session info
@@ -1156,7 +1173,7 @@ cor(values(eigen_raster4_T),values(eigen_raster3_T),"complete.obs") # movement o
 sessionInfo()
 ```
 
-# Litterature cited
+# Literature cited
 
 Avgar, T., Lele, S. R., Keim, J. L., & Boyce, M. S. (2017). Relative selection strength: Quantifying effect size in habitat‐and step‐selection inference. Ecology and Evolution, 7, 5322-5330. https://doi.org/10.1002/ece3.3122
 
