@@ -169,3 +169,8 @@ The code to reproduce the analyses, tables, and figures associated with case stu
 which is focused on thick-billed murres, is available in `3_rsf_murre.Rmd`. 
 A compiled version is also available in `3_rsf_murre.html`.
 
+## Case study 2: gull
+
+The code to reproduce the analyses, tables, and figures associated with case study 2, 
+which is focused on glaucous-winged gulls, is available in `4_ssf_gull.Rmd`. 
+A compiled version is also available in `4_ssf_gull.html`.
