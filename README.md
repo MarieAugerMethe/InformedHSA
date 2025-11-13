@@ -8,7 +8,7 @@ understanding of habitat selection. Preprint available on bioRxiv.
 
 # Data
 
-All the data is available in the folder `Data`
+Unless stated otherwise, all the datasets are available in the folder `Data`
 
 ## Literature review
 
@@ -20,28 +20,28 @@ The excel file has 3 tabs:
 1. Documents: contains the information extracted from the articles. 
 Specifically it contains the columns:
     - Authors: full author list
-    - Article Title: title
-    - Abstract: arcticle abstract
+    - Article Title: title of the article
+    - Abstract: abstract of the article
     - TitleExclude: whether or not the article was excluded while reviewing the titles
     - AbstractExlude: whether or not the article was excluded while reviewing the abstracts
     - FullTextExclude: whether or not the article was excluded while reviewing the articles
-    - AccountForIndividuals: whether or not the habitat selection analysis account for individual (e.g., via random effect or separate analyses)
-    - IncludeCharacteristicsOfFitnessHealth: whether or not  the habitat selection analysis include characteristics of an individual fitness or health
+    - AccountForIndividuals: whether or not the habitat selection analysis accounts for individuals (e.g., via random effect or separate analyses)
+    - IncludeCharacteristicsOfFitnessHealth: whether or not  the habitat selection analysis includes characteristics of an individual fitness or health
     - FitnessHealthCharacteristic: the fitness or health characteristics included in the habitat selection analysis
-    - IncludeCharacteristicsOfFitnessHealthSpecific: More specific info on whether or not the habitat selection analysis included characteristics of an individual fitness or health
-    - IncludeOtherCharacteristic: whether or not the habitat analysis include other characteristics of the individuals
-    - OtherCharacteristic: the other individual characteristics was included in the habitat selection analysis
+    - IncludeCharacteristicsOfFitnessHealthSpecific: more specific information on whether or not the habitat selection analysis includes characteristics of an individual fitness or health
+    - IncludeOtherCharacteristic: whether or not the habitat analysis includes other characteristics of the individuals
+    - OtherCharacteristic: the other individual characteristics included in the habitat selection analysis
     - MethodCharacteristic: information on the method used to include individual characteristics (see keywords)
-    - CommentMethodCharacteristic: additional comment on method to include individual characteristics
-    - PrimaryFocus: What is the primary focus of the paper? Is it a review, methodological, theory, or empirical  paper?
+    - CommentMethodCharacteristic: additional comment on the method to include individual characteristics
+    - PrimaryFocus: the primary focus of the paper; i.e., Is it a review, methodological, theory, or empirical  paper?
     - ManagementConservationInference: whether or not conservation or management inference was made based on the results
-    - Additional info on inference made: additional information on the statements
+    - Additional info on inference made: additional information on the conservation/management statements
     - Species common: common species name
     - Species scientific: Latin species name
     
 2. Full questions: contains the relationship between the column short form name and the full question associated with that column.
 
-3. Keywords to use: contains a list of keywords to use from some of the columns (to help consistency).
+3. Keywords to use: contains a list of keywords to use for some of the columns (to help consistency).
 
 ## Simulations
 
@@ -56,12 +56,14 @@ we have saved the results in .csv files. The files are:
 
 These files are not stand alone files. 
 They are meant to be loaded in the simulation code and all of the columns are detailed in the code itself.
+They are in the main folder of the repository, not in the `Data` folder.
 
 ## Case study 1: murres
 
 The data files associated with the first case study are found in the subfolder `1_Murres`. 
 
-1. `murres_rsf_clean_maxdist.csv`: file that contains the movement data for thick-billed murres. Found in the subfolder `Movement`. 
+1. `murres_rsf_clean_maxdist.csv`: file that contains the movement data for thick-billed murres. 
+Found in the subfolder `Movement`. 
 Specifically, this file contains the farthest location from the colony 54 murres did during a foraging bout (~ 1 day; deployment < 26 hours).
 The columns are:
     - dep_id: the identifier for the deployment
@@ -80,23 +82,27 @@ The columns are:
     - X_UTM: Easting value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
     - Y_UTM: Northing value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
 
-2. `Nest_UTM`: folder that contains the files needed for the `nest_UTM.shp` shapefile. 
+2. `Nest_UTM`: folder that contains the files needed for the `nest_UTM.shp` shapefile.
+Found in the `Covariates` subfolder. 
 It is simply the colony location in a spatial object. 
 The Easting and Northing values in meters and the coordinate system is EPSG:32617 (WGS 84 / UTM zone 17N).
 
-3. `Bylot_UTM`: folder that contains the files needed for the `Bylot_UTM.shp` shapefile. 
+3. `Bylot_UTM`: folder that contains the files needed for the `Bylot_UTM.shp` shapefile.
+Found in the `Covariates` subfolder. 
 This shapefile contains the land layer around Bylot Island, Nunavut, Canada. 
 The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
 We use here the full (f) resolution. 
 We have simply clipped the original file to be focussed on the area around the study site 
 and have transform the coordinate system to be EPSG:32617 (WGS 84 / UTM zone 17N).
 
-## Case study 2: gull
+## Case study 2: gulls
 
 The data files associated with the second case study are found in the subfolder `2_Gulls`. 
 
-1. `gulls_day_notoncol.csv`: file that contains the movement data for glaucous-winged gulls. Found in the subfolder `Movement`. 
-Specifically, this file contains the daytime location outside a 200 meter buffer from their colony for 12 glaucous-winged gulls.
+1. `gulls_day_notoncol.csv`: file that contains the movement data for 
+the 12 glaucous-winged gulls used in the resource selection function (RSF) analysis. 
+Found in the subfolder `Movement`. 
+Specifically, this file contains the daytime location of these gulls that were outside a 200 meter buffer from their colony.
 The columns are:
     - device_id: individual identification number, specifically the tagging device number
     - UTC_datetime: date time of the location (in UTC)
@@ -112,14 +118,16 @@ The columns are:
     - Y_UTM: Northing value of the location (in meters; EPSG: 26910 (WGS 84 / UTM zone 10N) coordinate system)
 
 2. `BC_UTM`: folder that contains the files needed for the `bc_UTM.shp` shapefile. 
+Found in the `Covariates` subfolder. 
 This shapefile contains the land layer around the study area in British Columbia, Canada (and northern Washington, USA). 
 The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
-We use here the full (f) resolution. 
+We use the full (f) resolution. 
 We have simply clipped the original file to be focused on the area around the study site 
-and have transform the coordinate system to be EPSG:26910 (WGS 84 / UTM zone 10N).
+and have transformed the coordinate system to be EPSG:26910 (WGS 84 / UTM zone 10N).
 
-3. `XOXDEL_UTM`: folder that contains the files needed for `xoxdel_UTM.shp` shapefile. 
-The file represent the buffer around the island where the gulls have their colony, named XOXDEL (Mandarte Island). 
+3. `XOXDEL_UTM`: folder that contains the files needed for the `xoxdel_UTM.shp` shapefile.
+Found in the `Covariates` subfolder. 
+The file represent the buffer around the island (named XOXDEL; Mandarte Island) where the gulls have their colony. 
 First, a polygon was created by hand using Google Earth satellite images.  
 The polygon represents the line above the intertidal zone. 
 Then, the projection was changed to EPSG:26910 (WGS 84 / UTM zone 10N).
@@ -130,11 +138,11 @@ Only the 200 meters buffer is kept in the final shapefile.
 The file is found in the `Covariates/HumanImpact` subfolder. 
 The original data from Mu et al. (2021, 2022) is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
 We clipped it to be the area around the study area and changed the projection to EPSG:26910 (WGS 84 / UTM zone 10N).
-We rescaled the values to that they ranged from 0 to 1.
+We rescaled the values so that they ranged from 0 to 1.
 Using the R package `terra` we filled missing values on the coast using:
 
 ```
-# Original humanImpact is the clipped and transformed version of
+# The original humanImpact object is the clipped and transformed version of
 # the layer available via the link above.
 humanImpact <- focal(humanImpact, w = 9, fun = mean, na.policy = "only")
 humanImpact <- mask(humanImpact, land)
@@ -146,7 +154,7 @@ Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng M. (2021). An annu
 Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng, M. (2022). A global record of annual terrestrial human footprint dataset from 2000 to 2018. Scientific Data, 9, 176.
 
 
-## Case study 3: narwhal
+## Case study 3: narwhals
 
 The data files associated with the third case study are found in the subfolder `3_Narwhals`. 
 
@@ -161,9 +169,10 @@ The columns are:
     - Y_UTM: Northing value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
 
 2. `NorthernBaffin_UTM`: folder that contains the files needed for the `NorthernBaffin_UTM.shp` shapefile. 
+Found in the `Covariates` subfolder. 
 This shapefile contains the land layer around the study area in Nunavut, Canada. 
 The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
-We use here the full (f) resolution. 
+We use the full (f) resolution. 
 We have simply clipped the original file to be focused on the area around the study site 
 and have transform the coordinate system to be EPSG:32617 (WGS 84 / UTM zone 17N).
 
@@ -190,13 +199,13 @@ The code to reproduce the analyses, tables, and figures associated with case stu
 which is focused on thick-billed murres, is available in `3_rsf_murre.Rmd`. 
 A compiled version is also available in `3_rsf_murre.html`.
 
-## Case study 2: gull
+## Case study 2: gulls
 
 The code to reproduce the analyses, tables, and figures associated with case study 2, 
 which is focused on glaucous-winged gulls, is available in `4_ssf_gull.Rmd`. 
 A compiled version is also available in `4_ssf_gull.html`.
 
-## Case study 3: narwhal
+## Case study 3: narwhals
 
 The code to reproduce the analyses, tables, and figures associated with case study 3, 
 which is focused on narwhals, is available in `5_ssf_narwhal.Rmd`. 
