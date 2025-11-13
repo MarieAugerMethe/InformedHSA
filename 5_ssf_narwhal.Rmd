@@ -43,8 +43,6 @@ library(Matrix)
 narwhals <- read.csv(file = file.path(here("Data/3_Narwhals/Movement"),
                                     "narwhals_clean.csv"))
 head(narwhals)
-
-
 ```
 
 Formatting some of the columns.
@@ -54,7 +52,7 @@ Formatting some of the columns.
 narwhals$ID <- as.factor(narwhals$ID)
 
 # Make date time as date time object
-narwhals$UTC_datetime <- ymd_hms(narwhals$datetime_UTC, tz="UTC")
+narwhals$datetime_UTC <- ymd_hms(narwhals$datetime_UTC, tz="UTC")
 
 narwhals$release_datetime_UTC <- ymd_hms(narwhals$release_datetime_UTC)
 ```
@@ -62,10 +60,10 @@ narwhals$release_datetime_UTC <- ymd_hms(narwhals$release_datetime_UTC)
 Check number of GPS locations per deployments and create data table.
 
 ```{r data.table}
-narwhal.data.table <- narwhals %>% group_by(Individual) %>% 
+narwhal.data.table <- narwhals %>% group_by(ID) %>% 
   summarize("Date of capture" = unique(date(release_datetime_UTC)),
-            "N. of days" = as.numeric(round(max(UTC_datetime) - min(UTC_datetime),1)),
-            "N. of locations" = length(Individual), 
+            "N. of days" = as.numeric(round(max(datetime_UTC) - min(datetime_UTC),1)),
+            "N. of locations" = length(ID), 
             "Healed scars" = unique(Healed.Scars)) 
 ```
 
@@ -105,7 +103,7 @@ land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
 # cov <- NULL
 # fit.col.name <- "Healed.Scars"
 # id.col.name <- "ID"
-# t.name = "UTC_datetime"
+# t.name = "datetime_UTC"
 # x.name = "X_UTM"
 # y.name = "Y_UTM"
 # mask = list(land)
@@ -184,52 +182,45 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
 }
 ```
 
-We are using the land mask and 60 min time interval.
+We are using the land mask and 60 min time interval. This will take a few minutes to run.
 
 ```{r, cache=TRUE}
 set.seed(78369)
 narwhals.steps.avail <- prep.data.ssf(as.data.frame(narwhals.sf), cov = NULL, 
                                     fit.col.name = "Healed.Scars", 
-                                    id.col.name ="ID", t.name = "UTC_datetime", 
+                                    id.col.name ="ID", t.name = "datetime_UTC", 
                                     mask= list(land), n.random.extra = 1200, n.avail = 50,
                                     dt = 60)
 head(narwhals.steps.avail$steps.avail)
 ```
 
+There will be warnings produced (not shown in compiled version). These can be ignored.
+
 Should be n.avail. + 1. Needed lots of `r.random.extra` since tiny fjords.
 
 ```{r}
-nrow(narwhals.steps.avail$steps.avail)/sum(narwhals.steps.avail$steps.avail$case_num == 1) 
+nrow(narwhals.steps.avail$steps.avail)/sum(narwhals.steps.avail$steps.avail$case_num == 1)
 ```
 
 Let's calculate distance from shore. Distance from shore for habitat selection should be at the end of the step (select where to go), but for the movement kernel it should be at beginning of the step (movement characteristics based on where they are).
 
+This will take a few minutes to run.
+
 ```{r, cache=TRUE}
-narwhals.avail.sf <- st_as_sf(narwhals.steps.avail$steps.avail, coords = c("x2_", "y2_"), remove=FALSE, crs = chosen.proj)
-narwhals.avail.sf.start <- st_as_sf(narwhals.steps.avail$steps.avail, coords = c("x1_", "y1_"), remove=FALSE, crs = chosen.proj)
+narwhals.avail.sf <- st_as_sf(narwhals.steps.avail$steps.avail, 
+                              coords = c("x2_", "y2_"), remove = FALSE, 
+                              crs = chosen.proj)
+narwhals.avail.sf.start <- st_as_sf(narwhals.steps.avail$steps.avail, 
+                                    coords = c("x1_", "y1_"), remove = FALSE, 
+                                    crs = chosen.proj)
 
 land.1 <- st_cast(st_union(land),  to = 'MULTILINESTRING') # Need to make it a line to 
-narwhals.avail.sf$distShore.end <- as.numeric(st_distance(narwhals.avail.sf, land.1))/1000
-narwhals.avail.sf$distShore.start <- as.numeric(st_distance(narwhals.avail.sf.start, land.1))/1000
+narwhals.avail.sf$distShore.end <- 
+  as.numeric(st_distance(narwhals.avail.sf, land.1))/1000
+narwhals.avail.sf$distShore.start <- 
+  as.numeric(st_distance(narwhals.avail.sf.start, land.1))/1000
 ```
 
-Let's plot distance from shore.
-
-```{r}
-ggplot() +
-  geom_sf(data = narwhals.avail.sf,
-          aes(color = distShore.end), size = 0.5) +
-  geom_sf(data = land, col = "green", fill=NA) +
-  coord_sf(xlim = range(narwhals.avail.sf$x1_), 
-           ylim = range(narwhals.avail.sf$y1_))
-
-ggplot() +
-  geom_sf(data = narwhals.avail.sf,
-          aes(color = distShore.start), size = 0.5) +
-  geom_sf(data = land, col = "green", fill=NA) +
-  coord_sf(xlim = range(narwhals.avail.sf$x1_), 
-           ylim = range(narwhals.avail.sf$y1_))
-```
 
 Format data and binary variable as 0 and 1.
 
@@ -240,11 +231,11 @@ all.steps$Healed.Scars <- as.numeric(all.steps$Healed.Scars)
 
 # Fit models
 
-Function to fit an SSF.
+Function to fit a SSF.
 
 ```{r}
 fit.poisson.rs <- function(formula, data, 
-                           start = list(theta = c(log(1e6),0)), 
+                           start = list(theta = c(log(1e6), 0)), 
                            map = list(theta = factor(c(NA, 1)))){
   ssf <- glmmTMB(formula, family=poisson, 
                  data = data, start = start, map = map)
@@ -259,10 +250,11 @@ AICc table function
 AICcTable <- function(m, ...){
   namesObj <- names(tibble::lst(m, ...))
   namesObj[1] <- deparse(substitute(m))
-  AICc.table <- AICc(m,...)
+  AICc.table <- AICc(m, ...)
   row.names(AICc.table) <- namesObj
-  AICc.table <- AICc.table %>% mutate(deltaAICc = AICc - min(AICc, na.rm=TRUE))
-  AICc.table[order(AICc.table$deltaAICc),]
+  AICc.table <- AICc.table %>% 
+    mutate(deltaAICc = AICc - min(AICc, na.rm = TRUE))
+  AICc.table[order(AICc.table$deltaAICc), ]
 }
 ```
 
@@ -300,12 +292,18 @@ coef_map <- c("distShore.end" = "$\\beta_1: d_{n,t,j}$",
               "Healed.Scars:distShore.end" = "$\\beta_5: s_n d_{n,t,j}$",
               
               # SL X distshore X healed scars
-              "distShore.start:sl_:Healed.Scars" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
-              "distShore.start:Healed.Scars:sl_" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
-              "sl_:Healed.Scars:distShore.start" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
-              "sl_:distShore.start:Healed.Scars" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
-              "Healed.Scars:sl_:distShore.start" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
-              "Healed.Scars:distShore.start:sl_" = "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "distShore.start:sl_:Healed.Scars" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "distShore.start:Healed.Scars:sl_" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "sl_:Healed.Scars:distShore.start" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "sl_:distShore.start:Healed.Scars" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "Healed.Scars:sl_:distShore.start" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
+              "Healed.Scars:distShore.start:sl_" = 
+                "$\\beta_{6}: s_n d_{n,t-1,j} l_{n,t,j}$",
                   
               # Random effects 
               # "SD($x_{dist.e} \\; |$ ID)",
@@ -335,7 +333,8 @@ ssf.noscars <- fit.poisson.rs(formula = case_num ~ -1 +
                                 distShore.end +
                                 # Movement kernel
                                 sl_ + distShore.start:sl_ + 
-                                ln_sl + distShore.start:ln_sl + I(distShore.start^2):ln_sl +
+                                ln_sl + distShore.start:ln_sl + 
+                                I(distShore.start^2):ln_sl +
                                 cos_ta + 
                                 (1 | step_id_) +
                                 (0 + distShore.end | ID), 

@@ -153,7 +153,12 @@ The data files associated with the third case study are found in the subfolder `
 1. `narwhals_clean.csv`: file that contains the movement data for narwhals. Found in the subfolder `Movement`. 
 Specifically, this file contains the narwhal movement data used in the step selection analysis.
 The columns are:
-    - 
+    - ID: individual identification number
+    - datetime_UTC: date time of the location (in UTC)
+    - release_datetime_UTC: date time of release (in UTC)
+    - Healed.Scars: whether or not the individual had healed scars
+    - X_UTM: Easting value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
+    - Y_UTM: Northing value of the "foraging" location (in meters; EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system)
 
 2. `NorthernBaffin_UTM`: folder that contains the files needed for the `NorthernBaffin_UTM.shp` shapefile. 
 This shapefile contains the land layer around the study area in Nunavut, Canada. 
@@ -190,3 +195,10 @@ A compiled version is also available in `3_rsf_murre.html`.
 The code to reproduce the analyses, tables, and figures associated with case study 2, 
 which is focused on glaucous-winged gulls, is available in `4_ssf_gull.Rmd`. 
 A compiled version is also available in `4_ssf_gull.html`.
+
+## Case study 3: narwhal
+
+The code to reproduce the analyses, tables, and figures associated with case study 3, 
+which is focused on narwhals, is available in `5_ssf_narwhal.Rmd`. 
+A compiled version is also available in `5_ssf_narwhal.html`.
+
