@@ -126,7 +126,6 @@ Then, the projection was changed to EPSG:26910 (WGS 84 / UTM zone 10N).
 Finally, a 200 meters buffer around the polygon was added.
 Only the 200 meters buffer is kept in the final shapefile.
 
-
 4. `CumHumanImpact.tiff`: contains the cumulative human impact raster. 
 The file is found in the `Covariates/HumanImpact` subfolder. 
 The original data from Mu et al. (2021, 2022) is found on Figshare: https://figshare.com/articles/figure/An_annual_global_terrestrial_Human_Footprint_dataset_from_2000_to_2018/16571064
@@ -145,6 +144,23 @@ humanImpact <- mask(humanImpact, land)
 Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng M. (2021). An annual global terrestrial Human Footprint dataset from 2000 to 2018. figshare. Figure. https://doi.org/10.6084/m9.figshare.16571064.v7
 
 Mu H., Li X., Wen Y., Huang J., Du P., Su W., Miao S., & Geng, M. (2022). A global record of annual terrestrial human footprint dataset from 2000 to 2018. Scientific Data, 9, 176.
+
+
+## Case study 3: narwhal
+
+The data files associated with the third case study are found in the subfolder `3_Narwhals`. 
+
+1. `narwhals_clean.csv`: file that contains the movement data for narwhals. Found in the subfolder `Movement`. 
+Specifically, this file contains the narwhal movement data used in the step selection analysis.
+The columns are:
+    - 
+
+2. `NorthernBaffin_UTM`: folder that contains the files needed for the `NorthernBaffin_UTM.shp` shapefile. 
+This shapefile contains the land layer around the study area in Nunavut, Canada. 
+The original data was downloaded from NOAA: https://www.ngdc.noaa.gov/mgg/shorelines/. 
+We use here the full (f) resolution. 
+We have simply clipped the original file to be focused on the area around the study site 
+and have transform the coordinate system to be EPSG:32617 (WGS 84 / UTM zone 17N).
 
 # Code
 

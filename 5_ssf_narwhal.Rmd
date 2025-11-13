@@ -1,6 +1,6 @@
 ---
 title: "SSF for narwhals"
-author: "Marie Auger-Méthé"
+author: "Marie Auger-Méthé and Fanny Dupont"
 date: "`r Sys.Date()`"
 output: html_document
 ---
@@ -13,10 +13,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Packages
 
-```{r load.packages, message = FALSE}
-library(here) # To simplify data sharing
+```{r load.packages, message=FALSE}
+library(here) # to simplify data sharing
 library(tidyverse)
-library(ggpubr) # To put plots side-by-side
+library(ggpubr) # to put plots side-by-side
 library(sf) # to handle spatial object
 library(amt) # to prep data for ssf (and fit simpler ssf)
 library(glmmTMB)
@@ -40,7 +40,11 @@ library(Matrix)
 ## Narwhal data
 
 ```{r}
-narwhals <- read.csv(file=file.path(here("Data/Narwhals/Movement"),"narwhals_clean.csv"))
+narwhals <- read.csv(file = file.path(here("Data/3_Narwhals/Movement"),
+                                    "narwhals_clean.csv"))
+head(narwhals)
+
+
 ```
 
 Formatting some of the columns.
@@ -63,7 +67,6 @@ narwhal.data.table <- narwhals %>% group_by(Individual) %>%
             "N. of days" = as.numeric(round(max(UTC_datetime) - min(UTC_datetime),1)),
             "N. of locations" = length(Individual), 
             "Healed scars" = unique(Healed.Scars)) 
-narwhal.data.table
 ```
 
 ```{r save.data.table}
@@ -71,7 +74,7 @@ cat(kable(narwhal.data.table,
           format="latex", 
           caption="Narwhal data summary. We present the date of capture, the number of days and locations used in the analyses, and whether the individual had healed scars. Individual 18001 had a shorter time series because its tag only transmitted for 10 days.",
           booktabs = TRUE, linesep = "", row.names = FALSE),
-    file="narwhal_data_summary.tex")
+    file = "narwhal_data_summary.tex")
 ```
 
 Create a sf object for plotting. All of the layers should already projected in EPSG:32617 (WGS 84 / UTM zone 17N) coordinate system.
@@ -89,15 +92,8 @@ st_crs(narwhals.sf) <- chosen.proj
 Load the land covariate.
 
 ```{r load.land, message = FALSE}
-land <- st_read(file.path(here("Data/Narwhals/Covariates/NorthernBaffin_UTM"),
+land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
                           "NorthernBaffin_UTM.shp"))
-```
-
-```{r}
-ggplot() +
-  geom_sf(data = narwhals.sf, aes(colour=Healed.Scars), size=0.5) +
-  geom_sf(data = land, col="green", fill=NA) +
-  coord_sf(xlim = range(narwhals.sf$x), ylim = range(narwhals.sf$y))
 ```
 
 
