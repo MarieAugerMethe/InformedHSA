@@ -551,7 +551,8 @@ sl.ssf <- function(b1_shape, b2_scale, model, dist, healed = FALSE){
 Colours for plots.
 
 ```{r}
-pred.col <- c("hotpink", "blue")
+pred.col <- c("hotpink", # With scars
+              "blue") # Without scars
 names(pred.col) <- c("TRUE", "FALSE")
 ```
 
@@ -1056,7 +1057,15 @@ Function to map UDs.
 
 ```{r UDforFinal}
 val.range.UD <- range(as.data.frame(ud.rasters))
-mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0.2)){
+mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0, 0.2, 0.2), y.axis.inc = TRUE){
+  if(y.axis.inc){
+    axis.text.y <- element_text(size = rel(0.5))
+    axis.ticks.y <- element_line(colour = 'black', linewidth = 0.1)
+  }else{
+    plot.mar.l.UD[4] <- 0 
+    axis.text.y <- element_blank()  # Removes the tick mark labels (the numbers)
+    axis.ticks.y <- element_blank()
+  }
   map <- ggplot() +
     geom_spatraster(data = ud.rasters[[model.name]]) +
     scale_fill_gradient2(low=ssf.min.col, mid=ssf.mid.col, high=ssf.max.col,
@@ -1064,16 +1073,22 @@ mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(ud.rasters[[model.name]])[1], st_bbox(ud.rasters[[model.name]])[3]),
            ylim = c(st_bbox(ud.rasters[[model.name]])[2], st_bbox(ud.rasters[[model.name]])[4]), expand = FALSE) +
-    theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
+    theme(panel.border = element_rect(colour = col.box, fill = NA, linewidth = 0.5),
           legend.title = element_text(size = rel(legend.text.size)),
           legend.text = element_text(size = rel(0.5)),
           legend.position = "top",
-          axis.text = element_text(size = rel(0.5)),
-          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+          legend.justification = "left",
+          axis.text.x = element_text(size = rel(0.5)),
+          axis.ticks.x = element_line(colour = 'black', linewidth = 0.1),
+          axis.text.y = axis.text.y,
+          axis.ticks.y =  axis.ticks.y) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
-    guides(fill = guide_colorbar(title = "UD", order = 4,
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+    guides(fill = guide_colorbar(title = "UD", 
+                                 order = 4,
+                                 title.position = "right",
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
     theme(plot.margin = unit(plot.mar.l.UD, 'lines'))
   return(map)
@@ -1082,7 +1097,7 @@ mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0
 mapping.UD("sel.healed.F", pred.col["FALSE"])
 ```
 
-Create legends.
+Create legend for UD.
 
 ```{r}
 legend.plot.map.ud <- as_ggplot(get_legend(mapping.UD("sel.healed.F", "black")))
@@ -1091,7 +1106,7 @@ legend.plot.map.ud <- as_ggplot(get_legend(mapping.UD("sel.healed.F", "black")))
 Final figure with UDs and means of step lengths.
 
 ```{r Fig_5_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
-ggarrange(
+main_plot <- ggarrange(
   ggarrange(legend.plot.mov, legend.plot.map.ud, nrow=1, widths = c(0.6, 0.4)),
   ggarrange(
     # Column 1 Model without healed scars 
@@ -1103,19 +1118,19 @@ ggarrange(
               font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("sel.healed", healed= FALSE), 
               mapping.UD("sel.healed.F", pred.col["FALSE"]), 
-              mapping.UD("sel.healed.T", pred.col["TRUE"]), 
-            nrow=1, legend = "none", widths =  c(0.38, 0.31,0.31),
-            labels = c("C", "D", "E"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
+              mapping.UD("sel.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              nrow=1, legend = "none", widths =  c(0.38, 0.325,0.295),
+              labels = c("C", "D", "E"), 
+              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.healed", healed= TRUE), 
               mapping.UD("mov.healed.F", pred.col["FALSE"]), 
-              mapping.UD("mov.healed.T", pred.col["TRUE"]), 
+              mapping.UD("mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE), 
             nrow=1, legend = "none", widths =  c(0.38, 0.31,0.31),
             labels = c("F", "G", "H"), 
             label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.sel.healed", healed= TRUE), 
               mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
-              mapping.UD("sel.mov.healed.T", pred.col["TRUE"]), 
+              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE), 
             nrow=1, legend = "none", widths = c(0.38, 0.31,0.31),
             labels = c("I", "J", "K"), 
             label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),
@@ -1123,29 +1138,54 @@ ggarrange(
     ncol=1),
    ncol = 1 , heights = c(0.1, 1)
 )
+main_plot
 ```
 
 Function to map the difference between the UDs of narwhals with and without scars.
 
 ```{r ud.diff.fx}
+ssf.min.col.diff <- "#40004b"
+ssf.mid.col.diff <- "#f7f7f7"
+ssf.max.col.diff <- "#00441b"
 mapping.UD.diff <- function(raster.dif,
                             col.box = "black", 
-                            plot.mar.l.UD = c(0.2, 0.2, 0.2, 0.2)){
+                            plot.mar.l.UD = c(0.2, 0, 0.2, 0.2), y.axis.inc = TRUE, limits = NULL){
+  if(is.null(limits)){
+    limits <- range(as.matrix(raster.dif), na.rm = TRUE)
+  }
+  
+  
+  if(y.axis.inc){
+    axis.text.y <- element_text(size = rel(0.5))
+    axis.ticks.y <- element_line(colour = 'black', linewidth = 0.1)
+  }else{
+    plot.mar.l.UD[4] <- 0 
+    axis.text.y <- element_blank()  # Removes the tick mark labels (the numbers)
+    axis.ticks.y <- element_blank()
+  }
   map <- ggplot() +
     geom_spatraster(data = raster.dif) +
-    scale_fill_gradient2(low = ssf.min.col, 
-                         mid = ssf.mid.col, 
-                         high = ssf.max.col, na.value = NA) +
+    scale_fill_gradient2(low = ssf.min.col.diff, 
+                         mid = ssf.mid.col.diff, 
+                         high = ssf.max.col.diff, na.value = NA, 
+                         midpoint = 0, limits = limits, breaks = scales::pretty_breaks(n = 3)) +
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(raster.dif)[1], st_bbox(raster.dif)[3]),
            ylim = c(st_bbox(raster.dif)[2], st_bbox(raster.dif)[4]), expand = FALSE) +
     theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
-          axis.text = element_text(size = rel(0.5)),
-          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+          legend.title = element_text(size = rel(legend.text.size)),
+          legend.text = element_text(size = rel(0.5)),
+          legend.justification = "left",
+          legend.position = "top",
+          axis.text.x = element_text(size = rel(0.5)),
+          axis.ticks.x = element_line(colour = 'black', linewidth = 0.1),
+          axis.text.y = axis.text.y,
+          axis.ticks.y =  axis.ticks.y) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
     guides(fill = guide_colorbar(title = "Diff. in UD", 
                                  order = 4,
+                                 title.position = "right",
                                  theme = theme(legend.title = 
                                                  element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
@@ -1154,17 +1194,78 @@ mapping.UD.diff <- function(raster.dif,
 }
 ```
 
+Identify the range of values in the difference in UD.
 
-```{r Fig_SupMat4_narwhal_ud_diff_sel, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster2_T - eigen_raster2_F)
+```{r}
+ud.diff.range <- range(
+  c(as.matrix(eigen_raster2_F - eigen_raster2_T), 
+    as.matrix(eigen_raster3_F - eigen_raster3_T),
+    as.matrix(eigen_raster4_F - eigen_raster4_T)), na.rm = TRUE)
+# Make it same length on both side
+ud.diff.range <- c(-max(abs(ud.diff.range)), max(abs(ud.diff.range)))
+mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)
 ```
 
-```{r Fig_SupMat5_narwhal_ud_diff_mov, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster3_T - eigen_raster3_F)
+Create legend for UD diff.
+
+```{r}
+legend.plot.map.ud.diff <- as_ggplot(get_legend(mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)))
 ```
 
-```{r Fig_SupMat6_narwhal_ud_diff_sel_mov, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster4_T - eigen_raster4_F)
+Let's add the difference in UDs.
+
+```{r Fig_6_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
+main_plot <- ggarrange(
+  legend.plot.mov,
+    ggarrange(
+      # Columns 1-2/Row 1 Model without healed scars + legends
+      ggarrange(mov.plot("noscars", healed= FALSE), 
+              mapping.UD("noscars", "black", plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.3)), 
+              ggarrange(legend.plot.map.ud, 
+                        legend.plot.map.ud.diff,
+                        nrow = 2),
+              nrow = 1, legend = "none", widths = c(0.36, 0.28, 0.36),
+              labels = c("A", "B"), 
+              label.x = c(0.19, 0.315), label.y = 1.06, 
+              font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 2 Model with healed scars in selection
+      ggarrange(mov.plot("sel.healed", healed = FALSE), 
+              mapping.UD("sel.healed.F", pred.col["FALSE"]), 
+              mapping.UD("sel.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
+              labels = c("C", "D", "E"), 
+              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 3 Model with healed scars in movement
+      ggarrange(mov.plot("mov.healed", healed = TRUE), 
+              mapping.UD("mov.healed.F", pred.col["FALSE"]), 
+              mapping.UD("mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
+            labels = c("F", "G", "H"), 
+            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 4 Model with healed scars in both
+      ggarrange(mov.plot("mov.sel.healed", healed = TRUE), 
+              mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
+              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster4_F - eigen_raster4_T, y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
+              labels = c("I", "J", "K"), 
+              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),
+              font.label = list(size = 8, face="plain")),
+      ncol = 1),
+  ncol = 1 , heights = c(0.1, 1)
+)
+main_plot
+```
+
+```{r}
+library(grid)
+
+UD.diff.view <- viewport(width = 0.39, height = 0.43, x = 0.227, y = 0.42)
+print(main_plot)
+print(UD.diff.best.M, vp = UD.diff.view)
+
 ```
 
 # Session info
