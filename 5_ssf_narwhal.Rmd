@@ -97,7 +97,6 @@ land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
 
 # Function to prep data for ssf
 
-
 ```{r prep.data.fx}
 prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id", 
                           x.name = "X_UTM", y.name = "Y_UTM", t.name = "DatetimeLocal",
@@ -209,7 +208,6 @@ narwhals.avail.sf$distShore.start <-
   as.numeric(st_distance(narwhals.avail.sf.start, land.1))/1000
 ```
 
-
 Format data and binary variable as 0 and 1.
 
 ```{r}
@@ -230,7 +228,6 @@ fit.poisson.rs <- function(formula, data,
   return(ssf)
 }
 ```
-
 
 AICc table function
 
@@ -303,17 +300,17 @@ estimates <- "{estimate}{stars}"
 statistics <- "({std.error})"
 ```
 
-We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, these SSFs model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
+We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, we present the models used to estimate the parameters of these SSFs. These models model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
 
 Model 1 (baseline model): Scars ignored
 
-The SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
+The model used to estimate the parameters of this SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j}  + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) + \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
 \beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
-where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2015), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
+where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2016), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
 
 ```{r, message = FALSE}
 ssf.noscars <- fit.poisson.rs(formula = case_num ~ -1 + 
@@ -1309,13 +1306,14 @@ sessionInfo()
 
 # Literature cited
 
-Avgar, T., Lele, S. R., Keim, J. L., & Boyce, M. S. (2017). Relative selection strength: Quantifying effect size in habitat‐and step‐selection inference. Ecology and Evolution, 7, 5322-5330. https://doi.org/10.1002/ece3.3122
+Avgar, T., Potts, J. R., Lewis, M. A. & Boyce, M. S. (2016). Integrated step selection494
+analysis: bridging the gap between resource selection and animal movement. Methods in Ecology and Evolution, 7, 619–630. https://doi.org/10.1111/2041-210X.12528
 
 
 Hawkes, C. (2009). Linking movement behaviour, dispersal and population processes: is individual variation a key? Journal of Animal Ecology, 78, 894-906. https://doi.org/10.1111/j.1365-2656.2009.01534.x
 
 
-Muff S., Signer J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087
+Muff, S., Signer, J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087
 
 Okubo, A. (1980). Diffusion and ecological problems: mathematical models. Springer, New York.
 
