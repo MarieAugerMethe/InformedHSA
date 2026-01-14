@@ -97,7 +97,6 @@ land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
 
 # Function to prep data for ssf
 
-
 ```{r prep.data.fx}
 prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id", 
                           x.name = "X_UTM", y.name = "Y_UTM", t.name = "DatetimeLocal",
@@ -209,7 +208,6 @@ narwhals.avail.sf$distShore.start <-
   as.numeric(st_distance(narwhals.avail.sf.start, land.1))/1000
 ```
 
-
 Format data and binary variable as 0 and 1.
 
 ```{r}
@@ -230,7 +228,6 @@ fit.poisson.rs <- function(formula, data,
   return(ssf)
 }
 ```
-
 
 AICc table function
 
@@ -303,17 +300,17 @@ estimates <- "{estimate}{stars}"
 statistics <- "({std.error})"
 ```
 
-We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, these SSFs model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
+We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, we present the models used to estimate the parameters of these SSFs. These models model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
 
 Model 1 (baseline model): Scars ignored
 
-The SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
+The model used to estimate the parameters of this SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j}  + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) + \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
 \beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
-where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2015), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
+where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2016), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
 
 ```{r, message = FALSE}
 ssf.noscars <- fit.poisson.rs(formula = case_num ~ -1 + 
@@ -551,8 +548,18 @@ sl.ssf <- function(b1_shape, b2_scale, model, dist, healed = FALSE){
 Colours for plots.
 
 ```{r}
-pred.col <- c("hotpink", "blue")
+# For with and without
+pred.col <- c("#e66101", # With scars 
+              "#542788") # Without scars
 names(pred.col) <- c("TRUE", "FALSE")
+
+# For differences in UD, which is no scars - with scars
+# midpoint is 0
+# -ve (i.e., min) -> means animals with scars use more this area
+# +ve (i.e., max) -> means animals without scars use more this area
+ssf.min.col.diff <- pred.col["TRUE"]
+ssf.mid.col.diff <- "#f7f7f7"
+ssf.max.col.diff <- pred.col["FALSE"]
 ```
 
 Calculate the predicted mean values for plots.
@@ -593,7 +600,6 @@ colnames(models.pred) <- c("dist.seq",
 # Make predicted step length in km
 models.pred[-1] <- models.pred[-1]/1000
 ```
-
 
 Observed values for the plots.
 
@@ -819,7 +825,7 @@ legend.plot.mov <- as_ggplot(get_legend(mov.plot("mov.sel.healed",
 
 ## Alternative figure with both movement and habitat selection
 
-```{r Fig_5_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
+```{r Fig_6_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
 ggarrange(
   ggarrange(legend.plot.mov, legend.plot.map, nrow = 1, 
             widths = c(0.6, 0.4)),
@@ -835,7 +841,8 @@ ggarrange(
               mapping("sel.healed.T", pred.col["TRUE"]), 
             nrow=1, legend = "none", widths = c(0.55, 0.225 ,0.225),
             labels = c("C", "D", "E"), 
-            label.x = c(0.13, rep(0.175, 2)), label.y = c(1.05, rep(0.92,2)),font.label = list(size = 8, face="plain")),
+            label.x = c(0.13, rep(0.175, 2)), label.y = c(1.05, rep(0.92,2)),
+            font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.healed", healed= TRUE),
               mapping("mov.healed", "black"), nrow=1, legend = "none", 
               widths = c(0.55,0.45),
@@ -944,7 +951,6 @@ step_prob_matrix4_F <- dgamma(step_length_matrix,
                               shape = shape4_F, scale = scale4_F)
 ```
 
-
 We can now derive the movement kernel. Note that we do not incorporate turning angles, effectively ignoring directional correlation in the data. This simplification should introduce minimal bias because the effect of correlation becomes negligible when inferring long-term behaviour. 
 As Hawkes (2009) observes "As sampling is carried out less frequently or after a large number of steps, CRW increasingly comes to resemble uncorrelated random walk (Okubo 1980). That is relevant in exploring the implications of the correlation identiﬁed in movement behaviour because CRW may generate distance distributions similar to or the same as those of uncorrelated random walk over time-scales relevant to dispersal". In other words, over large scales and long time periods, the habitat use patterns of a correlated random walk are similar to those of an uncorrelated walk. Since the UD reflects the stationary equilibrium of habitat use patterns, neglecting the correlation in movement data when estimating it, should only introduce minimal bias.
 
@@ -1051,12 +1057,19 @@ ud.rasters <- list(
 )
 ```
 
-
 Function to map UDs.
 
 ```{r UDforFinal}
 val.range.UD <- range(as.data.frame(ud.rasters))
-mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0.2)){
+mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0, 0.2, 0.2), y.axis.inc = TRUE){
+  if(y.axis.inc){
+    axis.text.y <- element_text(size = rel(0.5))
+    axis.ticks.y <- element_line(colour = 'black', linewidth = 0.1)
+  }else{
+    plot.mar.l.UD[4] <- 0 
+    axis.text.y <- element_blank()  # Removes the tick mark labels (the numbers)
+    axis.ticks.y <- element_blank()
+  }
   map <- ggplot() +
     geom_spatraster(data = ud.rasters[[model.name]]) +
     scale_fill_gradient2(low=ssf.min.col, mid=ssf.mid.col, high=ssf.max.col,
@@ -1064,16 +1077,22 @@ mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(ud.rasters[[model.name]])[1], st_bbox(ud.rasters[[model.name]])[3]),
            ylim = c(st_bbox(ud.rasters[[model.name]])[2], st_bbox(ud.rasters[[model.name]])[4]), expand = FALSE) +
-    theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
+    theme(panel.border = element_rect(colour = col.box, fill = NA, linewidth = 0.5),
           legend.title = element_text(size = rel(legend.text.size)),
           legend.text = element_text(size = rel(0.5)),
           legend.position = "top",
-          axis.text = element_text(size = rel(0.5)),
-          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+          legend.justification = "left",
+          axis.text.x = element_text(size = rel(0.5)),
+          axis.ticks.x = element_line(colour = 'black', linewidth = 0.1),
+          axis.text.y = axis.text.y,
+          axis.ticks.y =  axis.ticks.y) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
-    guides(fill = guide_colorbar(title = "UD", order = 4,
-                                 theme = theme(legend.title = element_text(size = rel(legend.text.size)),
+    guides(fill = guide_colorbar(title = "UD", 
+                                 order = 4,
+                                 title.position = "right",
+                                 theme = theme(legend.title = 
+                                                 element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
     theme(plot.margin = unit(plot.mar.l.UD, 'lines'))
   return(map)
@@ -1082,47 +1101,10 @@ mapping.UD <- function(model.name, col.box, plot.mar.l.UD = c(0.045, 0.2, 0.2, 0
 mapping.UD("sel.healed.F", pred.col["FALSE"])
 ```
 
-Create legends.
+Create legend for UD.
 
 ```{r}
 legend.plot.map.ud <- as_ggplot(get_legend(mapping.UD("sel.healed.F", "black")))
-```
-
-Final figure with UDs and means of step lengths.
-
-```{r Fig_5_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
-ggarrange(
-  ggarrange(legend.plot.mov, legend.plot.map.ud, nrow=1, widths = c(0.6, 0.4)),
-  ggarrange(
-    # Column 1 Model without healed scars 
-    ggarrange(mov.plot("noscars", healed= FALSE), 
-              mapping.UD("noscars", "black", plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.2 )), 
-              nrow=1, legend = "none", widths = c(0.38, 0.62),
-              labels = c("A", "B"), 
-              label.x = c(0.19, 0.315), label.y = 1.06, 
-              font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("sel.healed", healed= FALSE), 
-              mapping.UD("sel.healed.F", pred.col["FALSE"]), 
-              mapping.UD("sel.healed.T", pred.col["TRUE"]), 
-            nrow=1, legend = "none", widths =  c(0.38, 0.31,0.31),
-            labels = c("C", "D", "E"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("mov.healed", healed= TRUE), 
-              mapping.UD("mov.healed.F", pred.col["FALSE"]), 
-              mapping.UD("mov.healed.T", pred.col["TRUE"]), 
-            nrow=1, legend = "none", widths =  c(0.38, 0.31,0.31),
-            labels = c("F", "G", "H"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("mov.sel.healed", healed= TRUE), 
-              mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
-              mapping.UD("sel.mov.healed.T", pred.col["TRUE"]), 
-            nrow=1, legend = "none", widths = c(0.38, 0.31,0.31),
-            labels = c("I", "J", "K"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),
-            font.label = list(size = 8, face="plain")),
-    ncol=1),
-   ncol = 1 , heights = c(0.1, 1)
-)
 ```
 
 Function to map the difference between the UDs of narwhals with and without scars.
@@ -1130,22 +1112,52 @@ Function to map the difference between the UDs of narwhals with and without scar
 ```{r ud.diff.fx}
 mapping.UD.diff <- function(raster.dif,
                             col.box = "black", 
-                            plot.mar.l.UD = c(0.2, 0.2, 0.2, 0.2)){
+                            plot.mar.l.UD = c(0.045, 0, 0.2, 0.2), 
+                            y.axis.inc = TRUE, limits = NULL){
+  if(is.null(limits)){
+    limits <- range(as.matrix(raster.dif), na.rm = TRUE)
+  }
+  
+  
+  if(y.axis.inc){
+    axis.text.y <- element_text(size = rel(0.5))
+    axis.ticks.y <- element_line(colour = 'black', linewidth = 0.1)
+  }else{
+    plot.mar.l.UD[4] <- 0 
+    axis.text.y <- element_blank()  # Removes the tick mark labels (the numbers)
+    axis.ticks.y <- element_blank()
+  }
   map <- ggplot() +
     geom_spatraster(data = raster.dif) +
-    scale_fill_gradient2(low = ssf.min.col, 
-                         mid = ssf.mid.col, 
-                         high = ssf.max.col, na.value = NA) +
+    scale_fill_gradient2(low = ssf.min.col.diff, 
+                         mid = ssf.mid.col.diff, 
+                         high = ssf.max.col.diff, na.value = NA, 
+                         midpoint = 0, limits = limits, 
+                         breaks = scales::pretty_breaks(n = 3),
+                         labels = function(x) {
+                           sapply(x, function(v) {
+                             if (v < 0) {paste0(v, "\n\nScarred")
+                             } else if (v > 0) {
+                               paste0(v, "\n\nUnscarred")
+                                 } else {paste0(v, "\nUsed more by")}})}) +
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(raster.dif)[1], st_bbox(raster.dif)[3]),
            ylim = c(st_bbox(raster.dif)[2], st_bbox(raster.dif)[4]), expand = FALSE) +
-    theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
-          axis.text = element_text(size = rel(0.5)),
-          axis.ticks = element_line(colour = 'black', linewidth = 0.1)) +
+    theme(panel.border = element_rect(colour = col.box, fill = NA, 
+                                      linewidth = 0.5),
+          legend.title = element_text(size = rel(legend.text.size)),
+          legend.text = element_text(size = rel(0.5)),
+          legend.justification = "left",
+          legend.position = "top",
+          axis.text.x = element_text(size = rel(0.5)),
+          axis.ticks.x = element_line(colour = 'black', linewidth = 0.1),
+          axis.text.y = axis.text.y,
+          axis.ticks.y =  axis.ticks.y) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
-    guides(fill = guide_colorbar(title = "Diff. in UD", 
+    guides(fill = guide_colorbar(title = "Diff. in UD \n\n", 
                                  order = 4,
+                                 title.position = "right",
                                  theme = theme(legend.title = 
                                                  element_text(size = rel(legend.text.size)),
                                                legend.position = "top"))) +
@@ -1154,17 +1166,87 @@ mapping.UD.diff <- function(raster.dif,
 }
 ```
 
+Identify the range of values in the difference in UD.
 
-```{r Fig_SupMat4_narwhal_ud_diff_sel, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster2_T - eigen_raster2_F)
+```{r}
+ud.diff.range <- range(
+  c(as.matrix(eigen_raster2_F - eigen_raster2_T), 
+    as.matrix(eigen_raster3_F - eigen_raster3_T),
+    as.matrix(eigen_raster4_F - eigen_raster4_T)), na.rm = TRUE)
+# Make it same length on both side
+ud.diff.range <- c(-max(abs(ud.diff.range)), max(abs(ud.diff.range)))
+mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, limits = ud.diff.range)
 ```
 
-```{r Fig_SupMat5_narwhal_ud_diff_mov, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster3_T - eigen_raster3_F)
+Create legend for UD diff.
+
+```{r}
+legend.plot.map.ud.diff <- as_ggplot(get_legend(
+  mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)))
 ```
 
-```{r Fig_SupMat6_narwhal_ud_diff_sel_mov, fig.height=3, fig.width=6, dev='png'}
-mapping.UD.diff(eigen_raster4_T - eigen_raster4_F)
+Final figure.
+
+```{r Fig_6_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
+main_plot <- ggarrange(
+  legend.plot.mov,
+    ggarrange(
+      # Columns 1-2/Row 1 Model without healed scars + legends
+      ggarrange(mov.plot("noscars", healed= FALSE), 
+              mapping.UD("noscars", "black", 
+                         plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.3)), 
+              ggarrange(legend.plot.map.ud, 
+                        legend.plot.map.ud.diff,
+                        nrow = 2),
+              nrow = 1, legend = "none", widths = c(0.36, 0.28, 0.36),
+              labels = c("A", "B"), 
+              label.x = c(0.19, 0.128), 
+              label.y = c(1.06, 1.02), 
+              font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 2 Model with healed scars in selection
+      ggarrange(mov.plot("sel.healed", healed = FALSE), 
+              mapping.UD("sel.healed.F", pred.col["FALSE"]), 
+              mapping.UD("sel.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, 
+                              col.box = grey(0.6), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("C", "D", "E", "F"), 
+              label.x = c(0.19, 0.14, rep(0.007, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
+              font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 3 Model with healed scars in movement
+      ggarrange(mov.plot("mov.healed", healed = TRUE), 
+              mapping.UD("mov.healed.F", pred.col["FALSE"]), 
+              mapping.UD("mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, 
+                              col.box = grey(0.7), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("G", "H", "I", "J"), 
+              label.x = c(0.19, 0.14, rep(0.009, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
+              font.label = list(size = 8, face="plain")),
+      # Columns 1-2/Row 4 Model with healed scars in both
+      ggarrange(mov.plot("mov.sel.healed", healed = TRUE), 
+              mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
+              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], 
+                         y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster4_F - eigen_raster4_T, 
+                              col.box = grey(0.8), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("K", "L", "M", "N"), 
+              label.x = c(0.19, 0.14, rep(0.008, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
+              font.label = list(size = 8, face="plain")),
+      ncol = 1),
+  ncol = 1 , heights = c(0.1, 1)
+)
+main_plot
 ```
 
 # Session info
@@ -1175,13 +1257,14 @@ sessionInfo()
 
 # Literature cited
 
-Avgar, T., Lele, S. R., Keim, J. L., & Boyce, M. S. (2017). Relative selection strength: Quantifying effect size in habitat‐and step‐selection inference. Ecology and Evolution, 7, 5322-5330. https://doi.org/10.1002/ece3.3122
+Avgar, T., Potts, J. R., Lewis, M. A. & Boyce, M. S. (2016). Integrated step selection494
+analysis: bridging the gap between resource selection and animal movement. Methods in Ecology and Evolution, 7, 619–630. https://doi.org/10.1111/2041-210X.12528
 
 
 Hawkes, C. (2009). Linking movement behaviour, dispersal and population processes: is individual variation a key? Journal of Animal Ecology, 78, 894-906. https://doi.org/10.1111/j.1365-2656.2009.01534.x
 
 
-Muff S., Signer J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087
+Muff, S., Signer, J., & Fieberg J. (2020). Accounting for individual-specific variation in habitat-selection studies: Efficient estimation of mixed-effects models using Bayesian or frequentist computation. J Anim Ecol, 89, 80–92. https://doi.org/10.1111/1365-2656.13087
 
 Okubo, A. (1980). Diffusion and ecological problems: mathematical models. Springer, New York.
 
