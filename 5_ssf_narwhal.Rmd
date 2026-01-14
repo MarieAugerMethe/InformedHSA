@@ -1249,15 +1249,6 @@ main_plot <- ggarrange(
 main_plot
 ```
 
-```{r}
-library(grid)
-
-UD.diff.view <- viewport(width = 0.39, height = 0.43, x = 0.227, y = 0.42)
-print(main_plot)
-print(UD.diff.best.M, vp = UD.diff.view)
-
-```
-
 # Session info
 
 ```{r session.info}
