@@ -1185,7 +1185,7 @@ legend.plot.map.ud.diff <- as_ggplot(get_legend(
   mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)))
 ```
 
-Let's add the difference in UDs.
+Final figure.
 
 ```{r Fig_6_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
 main_plot <- ggarrange(
