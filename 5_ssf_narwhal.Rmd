@@ -601,7 +601,6 @@ colnames(models.pred) <- c("dist.seq",
 models.pred[-1] <- models.pred[-1]/1000
 ```
 
-
 Observed values for the plots.
 
 ```{r}
@@ -826,7 +825,7 @@ legend.plot.mov <- as_ggplot(get_legend(mov.plot("mov.sel.healed",
 
 ## Alternative figure with both movement and habitat selection
 
-```{r Fig_5_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
+```{r Fig_6_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
 ggarrange(
   ggarrange(legend.plot.mov, legend.plot.map, nrow = 1, 
             widths = c(0.6, 0.4)),
@@ -842,7 +841,8 @@ ggarrange(
               mapping("sel.healed.T", pred.col["TRUE"]), 
             nrow=1, legend = "none", widths = c(0.55, 0.225 ,0.225),
             labels = c("C", "D", "E"), 
-            label.x = c(0.13, rep(0.175, 2)), label.y = c(1.05, rep(0.92,2)),font.label = list(size = 8, face="plain")),
+            label.x = c(0.13, rep(0.175, 2)), label.y = c(1.05, rep(0.92,2)),
+            font.label = list(size = 8, face="plain")),
     ggarrange(mov.plot("mov.healed", healed= TRUE),
               mapping("mov.healed", "black"), nrow=1, legend = "none", 
               widths = c(0.55,0.45),
@@ -951,7 +951,6 @@ step_prob_matrix4_F <- dgamma(step_length_matrix,
                               shape = shape4_F, scale = scale4_F)
 ```
 
-
 We can now derive the movement kernel. Note that we do not incorporate turning angles, effectively ignoring directional correlation in the data. This simplification should introduce minimal bias because the effect of correlation becomes negligible when inferring long-term behaviour. 
 As Hawkes (2009) observes "As sampling is carried out less frequently or after a large number of steps, CRW increasingly comes to resemble uncorrelated random walk (Okubo 1980). That is relevant in exploring the implications of the correlation identiﬁed in movement behaviour because CRW may generate distance distributions similar to or the same as those of uncorrelated random walk over time-scales relevant to dispersal". In other words, over large scales and long time periods, the habitat use patterns of a correlated random walk are similar to those of an uncorrelated walk. Since the UD reflects the stationary equilibrium of habitat use patterns, neglecting the correlation in movement data when estimating it, should only introduce minimal bias.
 
@@ -1058,7 +1057,6 @@ ud.rasters <- list(
 )
 ```
 
-
 Function to map UDs.
 
 ```{r UDforFinal}
@@ -1107,44 +1105,6 @@ Create legend for UD.
 
 ```{r}
 legend.plot.map.ud <- as_ggplot(get_legend(mapping.UD("sel.healed.F", "black")))
-```
-
-Final figure with UDs and means of step lengths.
-
-```{r Fig_5_narwhal_res_ud, fig.height=6, fig.width=6, dev='png'}
-main_plot <- ggarrange(
-  ggarrange(legend.plot.mov, legend.plot.map.ud, nrow=1, widths = c(0.6, 0.4)),
-  ggarrange(
-    # Column 1 Model without healed scars 
-    ggarrange(mov.plot("noscars", healed= FALSE), 
-              mapping.UD("noscars", "black", plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.2 )), 
-              nrow=1, legend = "none", widths = c(0.38, 0.62),
-              labels = c("A", "B"), 
-              label.x = c(0.19, 0.315), label.y = 1.06, 
-              font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("sel.healed", healed= FALSE), 
-              mapping.UD("sel.healed.F", pred.col["FALSE"]), 
-              mapping.UD("sel.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
-              nrow=1, legend = "none", widths =  c(0.38, 0.325,0.295),
-              labels = c("C", "D", "E"), 
-              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("mov.healed", healed= TRUE), 
-              mapping.UD("mov.healed.F", pred.col["FALSE"]), 
-              mapping.UD("mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE), 
-            nrow=1, legend = "none", widths =  c(0.38, 0.31,0.31),
-            labels = c("F", "G", "H"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
-    ggarrange(mov.plot("mov.sel.healed", healed= TRUE), 
-              mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
-              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE), 
-            nrow=1, legend = "none", widths = c(0.38, 0.31,0.31),
-            labels = c("I", "J", "K"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),
-            font.label = list(size = 8, face="plain")),
-    ncol=1),
-   ncol = 1 , heights = c(0.1, 1)
-)
-main_plot
 ```
 
 Function to map the difference between the UDs of narwhals with and without scars.
