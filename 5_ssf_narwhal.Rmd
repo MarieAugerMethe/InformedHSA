@@ -551,9 +551,18 @@ sl.ssf <- function(b1_shape, b2_scale, model, dist, healed = FALSE){
 Colours for plots.
 
 ```{r}
-pred.col <- c("hotpink", # With scars
-              "blue") # Without scars
+# For with and without
+pred.col <- c("#e66101", # With scars 
+              "#542788") # Without scars
 names(pred.col) <- c("TRUE", "FALSE")
+
+# For differences in UD, which is no scars - with scars
+# midpoint is 0
+# -ve (i.e., min) -> means animals with scars use more this area
+# +ve (i.e., max) -> means animals without scars use more this area
+ssf.min.col.diff <- pred.col["TRUE"]
+ssf.mid.col.diff <- "#f7f7f7"
+ssf.max.col.diff <- pred.col["FALSE"]
 ```
 
 Calculate the predicted mean values for plots.
@@ -1144,12 +1153,10 @@ main_plot
 Function to map the difference between the UDs of narwhals with and without scars.
 
 ```{r ud.diff.fx}
-ssf.min.col.diff <- "#40004b"
-ssf.mid.col.diff <- "#f7f7f7"
-ssf.max.col.diff <- "#00441b"
 mapping.UD.diff <- function(raster.dif,
                             col.box = "black", 
-                            plot.mar.l.UD = c(0.2, 0, 0.2, 0.2), y.axis.inc = TRUE, limits = NULL){
+                            plot.mar.l.UD = c(0.045, 0, 0.2, 0.2), 
+                            y.axis.inc = TRUE, limits = NULL){
   if(is.null(limits)){
     limits <- range(as.matrix(raster.dif), na.rm = TRUE)
   }
@@ -1168,11 +1175,19 @@ mapping.UD.diff <- function(raster.dif,
     scale_fill_gradient2(low = ssf.min.col.diff, 
                          mid = ssf.mid.col.diff, 
                          high = ssf.max.col.diff, na.value = NA, 
-                         midpoint = 0, limits = limits, breaks = scales::pretty_breaks(n = 3)) +
+                         midpoint = 0, limits = limits, 
+                         breaks = scales::pretty_breaks(n = 3),
+                         labels = function(x) {
+                           sapply(x, function(v) {
+                             if (v < 0) {paste0(v, "\n\nScarred")
+                             } else if (v > 0) {
+                               paste0(v, "\n\nUnscarred")
+                                 } else {paste0(v, "\nUsed more by")}})}) +
     geom_sf(data=land, fill=land.col) +
     coord_sf(xlim = c(st_bbox(raster.dif)[1], st_bbox(raster.dif)[3]),
            ylim = c(st_bbox(raster.dif)[2], st_bbox(raster.dif)[4]), expand = FALSE) +
-    theme(panel.border = element_rect(colour = col.box, fill=NA, linewidth = 0.5),
+    theme(panel.border = element_rect(colour = col.box, fill = NA, 
+                                      linewidth = 0.5),
           legend.title = element_text(size = rel(legend.text.size)),
           legend.text = element_text(size = rel(0.5)),
           legend.justification = "left",
@@ -1183,7 +1198,7 @@ mapping.UD.diff <- function(raster.dif,
           axis.ticks.y =  axis.ticks.y) +
     scale_y_continuous(breaks = seq(70, 80, by =1)) + 
     scale_x_continuous(breaks = seq(-90, -80, by = 5)) +
-    guides(fill = guide_colorbar(title = "Diff. in UD", 
+    guides(fill = guide_colorbar(title = "Diff. in UD \n\n", 
                                  order = 4,
                                  title.position = "right",
                                  theme = theme(legend.title = 
@@ -1203,13 +1218,14 @@ ud.diff.range <- range(
     as.matrix(eigen_raster4_F - eigen_raster4_T)), na.rm = TRUE)
 # Make it same length on both side
 ud.diff.range <- c(-max(abs(ud.diff.range)), max(abs(ud.diff.range)))
-mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)
+mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, limits = ud.diff.range)
 ```
 
 Create legend for UD diff.
 
 ```{r}
-legend.plot.map.ud.diff <- as_ggplot(get_legend(mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)))
+legend.plot.map.ud.diff <- as_ggplot(get_legend(
+  mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, limits = ud.diff.range)))
 ```
 
 Let's add the difference in UDs.
@@ -1220,38 +1236,55 @@ main_plot <- ggarrange(
     ggarrange(
       # Columns 1-2/Row 1 Model without healed scars + legends
       ggarrange(mov.plot("noscars", healed= FALSE), 
-              mapping.UD("noscars", "black", plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.3)), 
+              mapping.UD("noscars", "black", 
+                         plot.mar.l.UD = c(0.3, 0.2, 0.5, 0.3)), 
               ggarrange(legend.plot.map.ud, 
                         legend.plot.map.ud.diff,
                         nrow = 2),
               nrow = 1, legend = "none", widths = c(0.36, 0.28, 0.36),
               labels = c("A", "B"), 
-              label.x = c(0.19, 0.315), label.y = 1.06, 
+              label.x = c(0.19, 0.128), 
+              label.y = c(1.06, 1.02), 
               font.label = list(size = 8, face="plain")),
       # Columns 1-2/Row 2 Model with healed scars in selection
       ggarrange(mov.plot("sel.healed", healed = FALSE), 
               mapping.UD("sel.healed.F", pred.col["FALSE"]), 
               mapping.UD("sel.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
-              mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, y.axis.inc = FALSE, limits = ud.diff.range),
-              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
-              labels = c("C", "D", "E"), 
-              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
+              mapping.UD.diff(eigen_raster2_F - eigen_raster2_T, 
+                              col.box = grey(0.6), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("C", "D", "E", "F"), 
+              label.x = c(0.19, 0.14, rep(0.007, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
+              font.label = list(size = 8, face="plain")),
       # Columns 1-2/Row 3 Model with healed scars in movement
       ggarrange(mov.plot("mov.healed", healed = TRUE), 
               mapping.UD("mov.healed.F", pred.col["FALSE"]), 
               mapping.UD("mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
-              mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, y.axis.inc = FALSE, limits = ud.diff.range),
-              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
-            labels = c("F", "G", "H"), 
-            label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),font.label = list(size = 8, face="plain")),
+              mapping.UD.diff(eigen_raster3_F - eigen_raster3_T, 
+                              col.box = grey(0.7), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("G", "H", "I", "J"), 
+              label.x = c(0.19, 0.14, rep(0.009, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
+              font.label = list(size = 8, face="plain")),
       # Columns 1-2/Row 4 Model with healed scars in both
       ggarrange(mov.plot("mov.sel.healed", healed = TRUE), 
               mapping.UD("sel.mov.healed.F", pred.col["FALSE"]),  
-              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], y.axis.inc = FALSE),
-              mapping.UD.diff(eigen_raster4_F - eigen_raster4_T, y.axis.inc = FALSE, limits = ud.diff.range),
-              nrow = 1, legend = "none", widths =  c(0.36, 0.23, 0.2, 0.2),
-              labels = c("I", "J", "K"), 
-              label.x = c(0.19, rep(0.15, 2)), label.y = c(1.06, rep(1.06,2)),
+              mapping.UD("sel.mov.healed.T", pred.col["TRUE"], 
+                         y.axis.inc = FALSE),
+              mapping.UD.diff(eigen_raster4_F - eigen_raster4_T, 
+                              col.box = grey(0.8), 
+                              y.axis.inc = FALSE, limits = ud.diff.range),
+              nrow = 1, legend = "none", 
+              widths =  c(0.36, 0.235, 0.2025, 0.2025),
+              labels = c("K", "L", "M", "N"), 
+              label.x = c(0.19, 0.14, rep(0.008, 2)), 
+              label.y = c(1.06, rep(0.97, 3)),
               font.label = list(size = 8, face="plain")),
       ncol = 1),
   ncol = 1 , heights = c(0.1, 1)
