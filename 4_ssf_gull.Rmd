@@ -168,12 +168,15 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
 }
 ```
 
+Note that it takes a long time to run the analyses with 100 available points. 
+Thus, for a quick run through the code, one can change to a lower `n.avail` value.
 
 ```{r prep.gull.data, warning=FALSE, message=FALSE, cache=TRUE}
 set.seed(7777333)
 gulls.steps.avail <- prep.data.ssf(gulls, cov = list(human), 
                                    fit.col.name = "final_chick", 
-                                   id.col.name = "device_id")
+                                   id.col.name = "device_id",
+                                   n.avail = 100)
 ```
 
 
@@ -226,7 +229,6 @@ xoxdel.1 <- st_cast(st_union(xoxdel),  to = 'MULTILINESTRING') # Need to make it
 gulls.avail.sf$distXOXDEL <- as.numeric(st_distance(gulls.avail.sf, xoxdel.1))/1000 # in km
 ```
 
-
 Correlation between human impact and distance to colony. Only considering land locations.
 
 ```{r}
@@ -273,7 +275,7 @@ We will look at two simple SSF models that focus on how land and human impact on
 
 Model 1 (baseline model): Chicks ignored
 
-The SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, \ldots, J$), as: 
+The model used to estimate the parameters of the SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, \ldots, J$), as: 
 
 $$\mu_{n,t,j} = \text{exp}(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} + \beta_{2,n} c_{n,t,j} + \beta_{3,n} w_{n,t,j} + \beta_{4,n} w_{n,t,j} z_{n,t,j} + \beta_{l} l_{n,t,j} + \beta_{\text{ln}} \text{ln}(l_{n,t,j}) + \beta_{\theta} \text{cos}(\theta_{n,t,j}))), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
@@ -587,7 +589,6 @@ legend.plot.rel.hum <- as_ggplot(get_legend(hum.rel.chicks))
 
 Create rasters for maps. Start with land raster. Put 0 on NAs for human, which are locations in water. The locations are already ignored since human impact is only switched on when on land.
 
-
 ```{r}
 landR <- as.numeric(rasterize(land, human))
 landR[is.na(landR)] <- 0
@@ -636,7 +637,6 @@ legend.human.map <- as_ggplot(get_legend(hum.imp.map))
 ```
 
 Make NAs 0 for the predictions.
-
 
 ```{r}
 human[is.na(human)] <- 0
@@ -757,10 +757,9 @@ legend.plot.map <- as_ggplot(get_legend(mapping(model.name = "chicks.ignored")))
 ```
 
 
-## Final figure 
+## Final figure
 
-
-```{r Fig_4_gull_res, fig.height=6, fig.width=6, dev='png'}
+```{r Fig_5_gull_res, fig.height=6, fig.width=6, dev='png'}
 ggarrange(ggarrange(ggarrange(legend.plot.map, legend.human.map, nrow=1),
                     legend.plot.rel.hum,
                     nrow=2, widths = c(0.7, 0.5)),
