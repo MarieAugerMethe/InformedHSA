@@ -168,7 +168,7 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
 }
 ```
 
-Note that it takes a long time to run the analyses with 100 available points. 
+Note that it takes a long time to run the analyses with 50 available points. 
 Thus, for a quick run through the code, one can change to a lower `n.avail` value.
 
 ```{r prep.gull.data, warning=FALSE, message=FALSE, cache=TRUE}
@@ -176,7 +176,7 @@ set.seed(7777333)
 gulls.steps.avail <- prep.data.ssf(gulls, cov = list(human), 
                                    fit.col.name = "final_chick", 
                                    id.col.name = "device_id",
-                                   n.avail = 100)
+                                   n.avail = 50)
 ```
 
 
