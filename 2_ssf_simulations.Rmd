@@ -302,7 +302,7 @@ sim.fit <- fit.poisson.rs(formula = case_num ~ -1 +
 summary(sim.fit)
 ```
 
-We need a function to convert the estimated movement kernel parameters returned by the model above to the actual values of the estimated shape and scale parameters of the gamma distribution for the step lengths and the concentration parameter of the von Mises distribution for the turning angles. The fitted model above allows for these distributions to be affected by the selection. For more information on this, please see Avgar et al. (2015) and Fieberg et al. (2021), including their Appendix C.
+We need a function to convert the estimated movement kernel parameters returned by the model above to the actual values of the estimated shape and scale parameters of the gamma distribution for the step lengths and the concentration parameter of the von Mises distribution for the turning angles. The fitted model above allows for these distributions to be affected by the selection. For more information on this, please see Avgar et al. (2016) and Fieberg et al. (2021), including their Appendix C.
 
 ```{r}
 par.adj <- function(gamma.par, von.mises.par, model){
@@ -993,7 +993,7 @@ ggarrange(legend.plot.rel,
 
 # Literature cited
 
-Avgar, T., Lele, S. R., Keim, J. L., & Boyce, M. S. (2017). Relative selection strength: Quantifying effect size in habitat‐and step‐selection inference. Ecology and Evolution, 7, 5322-5330. https://doi.org/10.1002/ece3.3122
+Avgar, T., Potts, J. R., Lewis, M. A. & Boyce, M. S. (2016). Integrated step selection analysis: bridging the gap between resource selection and animal movement. Methods in Ecology and Evolution, 7, 619–630. https://doi.org/10.1111/2041-210X.12528
 
 Fieberg, J., Signer, J., Smith, B., & Avgar, T. (2021). A 'How to' guide for interpreting parameters in habitat-selection analyses. Journal of Animal Ecology, 90, 1027-1043. https://doi.org/10.1111/1365-2656.13441
 
