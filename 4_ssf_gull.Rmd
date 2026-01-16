@@ -50,7 +50,7 @@ gulls$DatetimeLocal <- ymd_hms(gulls$DatetimeLocal, tz = "America/Vancouver")
 gulls$UTC_datetime <- ymd_hms(gulls$UTC_datetime, tz = "UTC")
 ```
 
-Create data summary table.
+Let's create a data summary table.
 
 ```{r}
 gull.data.table <- gulls %>% group_by(device_id) %>% 
@@ -72,7 +72,6 @@ We will project all data in the UTM Zone 10N (EPSG: 26910). Other layers already
 chosen.proj <- 26910
 ```
 
-
 Get land, XOXDEL (the colony with buffer), and human impact layers.
 
 ```{r layers.load, message=FALSE}
@@ -81,9 +80,9 @@ land <- st_read(file.path(here("Data/2_Gulls/Covariates/BC_UTM"), "bc_UTM.shp"))
 human <- rast(file.path(here("Data/2_Gulls/Covariates/HumanImpact","CumHumanImpact.tiff")))
 ```
 
-The main habitat covariate we are interested in is the cumulative human impact. We are using the data for 2022 from  Mu et al. (2021, 2022). We use 2022, rather than 2023, because 2022 was the most recent layer available at the time of analysis. We note that we pre-process the data, specifically we reprojected it, interpolated values for land cells that had NA values, and scaled it so that the impact values ranged between 0 and 1.
+The main habitat covariate we are interested in is the cumulative human impact. We are using the data for 2022 from  Mu et al. (2021, 2022). We use 2022, rather than 2023, because 2022 was the most recent layer available at the time of analysis. We note that we pre-processed the data, specifically we reprojected it, interpolated values for land cells that had NA values, and scaled it so that the impact values ranged between 0 and 1.
 
-While the model only takes into account the human layer if it is on land and thus will ignore all NA, if we keep the NAs, the model will be dropping all rows where the human layer is equal to NA, which in effect will drop all locations on water. Thus change NAs to 0.
+While the model only takes into account the human layer if it is on land and thus will ignore all NAs, if we keep the NAs, the model will be dropping all rows where the human layer is equal to NA, which in effect will drop all locations on water. Thus change NAs to 0.
 
 ```{r}
 human[is.na(human)] <- 0
@@ -91,7 +90,7 @@ human[is.na(human)] <- 0
 
 # Sampling control points
 
-Function to prepare the data for step-selection function (SSF). This function samples the control points for the SSF.
+Function to prepare the data for models used to estimate the parameters of the step selection functions (SSFs). This function samples the control points.
 
 ```{r prep.data.fx}
 prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id", 
@@ -168,15 +167,14 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
 }
 ```
 
-Note that it takes a long time to run the analyses with 50 available points. 
-Thus, for a quick run through the code, one can change to a lower `n.avail` value.
+While results tend to stabilize with a larger number of control points (`n.avail`), it takes a long time to run the analyses with 100 points. Thus, for a quick run through the code, one can change to a lower `n.avail` value.
 
 ```{r prep.gull.data, warning=FALSE, message=FALSE, cache=TRUE}
 set.seed(7777333)
 gulls.steps.avail <- prep.data.ssf(gulls, cov = list(human), 
                                    fit.col.name = "final_chick", 
                                    id.col.name = "device_id",
-                                   n.avail = 50)
+                                   n.avail = 100)
 ```
 
 
@@ -206,7 +204,6 @@ ggplot() +
   ylim(st_bbox(xoxdel)[2]-border.size, st_bbox(xoxdel)[4]+border.size)  
 ```
 
-
 Let's also get distance to coastline (as gulls are coastal and do not go far inland or offshore). To calculate distance to coastline, we first need to make it a line.
 
 ```{r}
@@ -215,7 +212,7 @@ ggplot() +
   geom_sf(data=land.1)
 ```
 
-Now calculate distance to land. This will take about a minute to run.
+Now calculate distance to land. This will take a few minutes to run.
 
 ```{r}
 gulls.avail.sf$distShore <- as.numeric(st_distance(gulls.avail.sf, land.1))/1000 # in km
@@ -271,11 +268,11 @@ AICcTable <- function(m, ...){
 }
 ```
 
-We will look at two simple SSF models that focus on how land and human impact on land affect selection, while accounting for the fact that glaucous-winged gulls are coastal animals (there do not go far inland or offshore) and are central place foragers during incubation and chick rearing period. The baseline model (model 1) only includes the relationship with land, human impact on land, distance to shore, and distance to colony, while the new model (model 2) includes an interaction with number of chicks.
+We will explore two simple SSFs that focus on how land and human impact on land affect selection, while accounting for the fact that glaucous-winged gulls are coastal animals (there do not go far inland or offshore) and are central place foragers during incubation and chick rearing period. The baseline model only includes the relationship with land, human impact on land, distance to shore, and distance to colony, while the proxy-informed model includes an interaction with number of chicks.
 
 Model 1 (baseline model): Chicks ignored
 
-The model used to estimate the parameters of the SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, \ldots, J$), as: 
+The model used to estimate the parameters of the baseline SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, \ldots, J$), as: 
 
 $$\mu_{n,t,j} = \text{exp}(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} + \beta_{2,n} c_{n,t,j} + \beta_{3,n} w_{n,t,j} + \beta_{4,n} w_{n,t,j} z_{n,t,j} + \beta_{l} l_{n,t,j} + \beta_{\text{ln}} \text{ln}(l_{n,t,j}) + \beta_{\theta} \text{cos}(\theta_{n,t,j}))), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}),$$
 
@@ -283,7 +280,7 @@ where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ is dista
 
 Since the land variable, $w_{n,t,j}$ can only take two values: 0 and 1, it controls the fact that human impact is only included when the animal is on land. 
 
-This will take a minute to run.
+This will take a few minutes to run.
 
 ```{r, warning=FALSE}
 ssf.rsri <- fit.poisson.rs(formula = case_num ~ -1 + 
@@ -311,7 +308,7 @@ ssf.rsri$fit$convergence
 
 Looks ok.
 
-Model 2 (new model): includes number of chicks
+Model 2 (proxy-informed model): includes number of chicks
 
 The new model is based on the previous model but it includes interactions with the number of chicks.
 
@@ -319,7 +316,7 @@ $$\mu_{n,t,j} = \text{exp}(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} + \beta_{2,n} c
 
 which differ from the model only in two terms: $\beta_{5} r_{n} c_{n,t,j}$  and $\beta_{6} r_{n} w_{n,t,j} z_{n,t,j}$, which both include an interaction with the number of chicks $r_{n}$.
 
-This will take a minute to run.
+This will take a few minutes to run.
 
 ```{r, warning=FALSE}
 ssf.rsrifit <- fit.poisson.rs(formula = 
@@ -353,14 +350,14 @@ ssf.rsrifit$fit$convergence
 
 Looks ok.
 
-Look at AIC of the two models.
+Look at AICc of the two models.
 
 ```{r}
 AICcTable(ssf.rsrifit, ssf.rsri)
 ```
 
 ```{r par.est.setup}
-title <- "Parameter estimates from the two SSF models applied to the glaucous-winged gull data. The parameter estimates, along with standard errors, are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the significance level of 0.05."
+title <- "Parameter estimates from the two gull SSFs. The parameter estimates, along with standard errors, are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the significance level of 0.05."
 
 coef_map <- c("distShore" = "$\\beta_1: d_{n,t,j}$", # "Distance to shore",
               "distXOXDEL" = "$\\beta_2: c_{n,t,j}$", # Distance to colony 
@@ -431,7 +428,7 @@ cat(table.latex, file="gull_par_est.tex")
 ```
 
 
-How the selection function changes with chick number
+How the selection function changes with chick number.
 
 Function to be able to plot the effects.
 
@@ -630,7 +627,7 @@ hum.imp.map <- ggplot() +
 hum.imp.map
 ```
 
-Human impact legend
+Human impact legend.
 
 ```{r}
 legend.human.map <- as_ggplot(get_legend(hum.imp.map)) 
@@ -649,7 +646,6 @@ shore <- distance(landR, vect(land.1))/1000
 ```
 
 Distance to colony raster.
-
 
 ```{r}
 colony <- distance(landR, vect(xoxdel.1))/1000
