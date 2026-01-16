@@ -80,9 +80,9 @@ murres$tagging_date_local <- with_tz(ymd_hms(murres$datetime_release_UTC, tz = "
 ```
 
 
-Create data summary table.
+Let's create a data summary table.
 
-Need to add smaller font size in Latex: scriptsize after centering.
+Note for paper: need to add smaller font size in Latex: scriptsize after centering.
 
 ```{r murre.data.table}
 murre.data.table <- murres %>% 
@@ -139,11 +139,11 @@ study.area <- st_buffer(nests[1,], radius.sa*1000)
 study.area <- st_difference(study.area, land, sparse=FALSE)
 ```
 
-Sample the available location
+Sample the available location.
 
 ```{r}
 # Number of available per locations
-n.avail <- 500
+n.avail <- 1000
 # Sample more because we will remove those on land
 set.seed(87876982)
 rsf.avail <- random_points(study.area, 
@@ -168,7 +168,7 @@ nrow(rsf.avail.sf)/n.avail
 nrow(murres.sf)
 ```
 
-Plot the study area with available for supplementary material.
+Plot the study area with available points for supplementary material.
 
 ```{r Fig_SupMat1_murre_available, fig.height=6, fig.width=6, dev='png', cache=TRUE}
 study.area.box <- st_bbox(study.area)
@@ -191,7 +191,7 @@ ggplot() +
         axis.title.y=element_blank())
 ```
 
-Link availables to observed.
+Link availables to observed points.
 
 ```{r}
 cols <- c("dep_id", "dep_id_short", "rate_mass", "mass_gain", "UTC_datetime") 
@@ -205,7 +205,7 @@ rsf.all.sf <- rbind(murres.sf[, c("case_",cols)],
                     rsf.avail.sf[, c("case_",cols)])
 ```
 
-Calculate the distance from colony for all locations, including available. Here we used straight line distance to keep the case study as simple as possible, but in the future, one could consider looking at distance over water to account for the propensity of murres to travel over water.
+Calculate the distance from colony for all locations, including available points. Here we used straight line distance to keep the case study as simple as possible, but one could consider looking at distance over water to account for the propensity of murres to travel over water.
 
 ```{r}
 rsf.all.sf$distCol <- as.numeric(st_distance(rsf.all.sf,
@@ -226,7 +226,7 @@ As numeric.
 all.steps$case <- as.numeric(all.steps$case_)
 ```
 
-Weight for RSF. See Muff et al. 2020.
+Weight for RSF. See Muff et al. (2020).
 
 ```{r}
 all.steps$weight <- 1000^(1-all.steps$case)
@@ -260,7 +260,7 @@ AICcTable <- function(m, ...){
 Base info for tables of results.
 
 ```{r par.est.table.setup}
-title <- "Parameter estimates from the two RSF models applied to the thick-billed murre foraging location data. The parameter estimates along with their standard errors are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the signicance level of 0.05. Note that as recomended by Muff et al. (2020), we have fixed the value of the standard deviation (SD) of the intercept to a large value (1e6). Note that while we estimate the intercept value, we do not report its value as it is ecologically irrelevant."
+title <- "Parameter estimates from the two murre RSFs. The parameter estimates along with their standard errors are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the signicance level of 0.05. Note that as recomended by Muff et al. (2020), we have fixed the value of the standard deviation (SD) of the intercept to a large value (1e6). Note that while we estimate the intercept value, we do not report its value as it is ecologically irrelevant."
 
 coef_map <- c("distCol" = "$\\beta_1: d_{n,j}$", # Distance to colony
               "distCol:rate_mass" = "$\\beta_2: m_n \\times d_{n,j}$") #"Distance to colony X Rate of mass gain"
@@ -270,10 +270,12 @@ estimates <- "{estimate}{stars}"
 statistics <- "({std.error})" 
 ```
 
-We will look at two RSFs that model selection as a function of distance to colony. The baseline model (model 1) only includes distance to colony as a covariate, while the new model (model 2) includes an interaction with the rate of mass gain.
+We will look at two RSFs that model selection as a function of distance to colony: a baseline model that only includes distance to colony as a covariate, and a proxy-informed model that includes an interaction with the rate of mass gain.
 
 
 Model 1 (baseline model): Rate of mass gain ignored
+
+The model used to estimate the parameters of the baseline RSF is
 
 $$\text{logit}(\pi_{n,j}) = \beta_{0,n} + \beta_{1}d_{n,j}\qquad y_{n,j} \sim \text{Bernoulli}(\pi_{n,j}),$$
 where logit represents the logistic link function, $y_{n,j}$ is a variable that represent whether point $j$ of individual $n$ is a used ($y_{n,j} = 1$ for $j = 0$) or available point ($y_{n,j} = 0$ for $j = 1, ..., J$), $d_{n,j}$ is the distance to colony for point $j$ of individual $n$, and the intercept is modelled with a random effect that has a standard deviation fixed to a large value, here $\beta_{0,n} \sim \text{N}(\beta_0, 1000000^2)$.
@@ -286,7 +288,9 @@ summary(rsf.jd)
 ```
 
 
-Model 2 (new model): Rate of mass gain included
+Model 2 (proxy-informed model): Rate of mass gain included
+
+The model used to estimate the parameters of the proxy-informed RSF is:
 
 $$\text{logit}(\pi_{n,j}) = \beta_{0,n} + \beta_{1}d_{n,j} + \beta_{2}m_nd_{n,j} \qquad y_{n,j} \sim \text{Bernoulli}(\pi_{n,j}),$$
 
@@ -499,7 +503,7 @@ legend.plot.rel <- as_ggplot(get_legend(rel.dist.plot))
 
 ## Final figure with relationship to distance to colony
 
-```{r Fig_3_murre_res, fig.height=6, fig.width=6, dev='png'}
+```{r Fig_4_murre_res, fig.height=6, fig.width=6, dev='png'}
 ggarrange(ggarrange(legend.plot.rel, legend.plot.map,
                     nrow=2, widths = c(0.7, 0.5)),
           ggarrange(
