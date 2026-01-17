@@ -94,7 +94,6 @@ land <- st_read(file.path(here("Data/3_Narwhals/Covariates/NorthernBaffin_UTM"),
                           "NorthernBaffin_UTM.shp"))
 ```
 
-
 # Function to prep data for ssf
 
 ```{r prep.data.fx}
@@ -171,12 +170,14 @@ prep.data.ssf <- function(tracks, cov, fit.col.name = NULL, id.col.name = "id",
 
 We are using the land mask and 60 min time interval. This will take a few minutes to run.
 
-```{r, cache=TRUE}
+While results tend to stabilize with a larger number of control points (`n.avail`), it takes a long time to run the analyses with 100 points. Thus, for a quick run through the code, one can change to a lower `n.avail` value.
+
+```{r, cache=TRUE, warning=FALSE}
 set.seed(78369)
 narwhals.steps.avail <- prep.data.ssf(as.data.frame(narwhals.sf), cov = NULL, 
                                     fit.col.name = "Healed.Scars", 
                                     id.col.name ="ID", t.name = "datetime_UTC", 
-                                    mask= list(land), n.random.extra = 1200, n.avail = 50,
+                                    mask= list(land), n.random.extra = 1200, n.avail = 100,
                                     dt = 60)
 head(narwhals.steps.avail$steps.avail)
 ```
@@ -217,7 +218,7 @@ all.steps$Healed.Scars <- as.numeric(all.steps$Healed.Scars)
 
 # Fit models
 
-Function to fit a SSF.
+Function to estimate the parameters of a SSF.
 
 ```{r}
 fit.poisson.rs <- function(formula, data, 
@@ -229,7 +230,7 @@ fit.poisson.rs <- function(formula, data,
 }
 ```
 
-AICc table function
+AICc table function.
 
 ```{r aicc.table.fx}
 AICcTable <- function(m, ...){
@@ -246,7 +247,7 @@ AICcTable <- function(m, ...){
 Base info for tables of results.
 
 ```{r}
-title <- "Parameter estimates from the four SSF models applied to the narwhal movement data. The parameter estimates, along with their standard errors, are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the significance level of 0.05."
+title <- "Parameter estimates from the four narwhal SSFs. The parameter estimates, along with their standard errors, are presented. A * indicates that the p-value comparing this parameter value to 0 is significant at the significance level of 0.05."
 
 coef_map <- c("distShore.end" = "$\\beta_1: d_{n,t,j}$",
               
@@ -300,11 +301,11 @@ estimates <- "{estimate}{stars}"
 statistics <- "({std.error})"
 ```
 
-We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, we present the models used to estimate the parameters of these SSFs. These models model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., 50$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
+We will look at four SSFs that compare the environmental covariates at locations associated with the observed animal movement at time $t$ (encoded as $y_{n,t,j} = 1$ for $j = 0$) to control locations (encoded as $y_{n,t,j} = 0$ for $j = 1, ..., J$). Here, we present the models used to estimate the parameters of these SSFs. These models model the locations of $n = 1, ..., 14$ narwhals for $j = 0, 1,..., J$ used and control locations. The environmental covariate of interest is distance to shore, and we assumed that distance to shore at the end of step $j$ $d_{n,t,j}$ affects the selection function, while distance to shore at the start of a step $j$ $d_{n,t-1,j}$ affects the movement kernel. We use the mixed Poisson model framework outlined in Muff et al. (2020).
 
 Model 1 (baseline model): Scars ignored
 
-The model used to estimate the parameters of this SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
+The model used to estimate the parameters of baseline SSF models the step of individual $n$ at time $t$, $y_{n,t,j}$, which take the value of 1 for used step ($j = 0$) and 0 for control points ($j = 1, ..., J$), as:
 
 $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j}  + \\ \beta_{l} l_{n,t,j} + \beta_{2} d_{n,t-1,j} l_{n,t,j} + \\
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) + \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
@@ -312,7 +313,7 @@ $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j}  + \\ \beta_{l} l_{n,
 
 where for the $n^{th}$ individual at time $t$ for step $j$, $d_{n,t,j}$ represents the distance to shore, $l_{n,t,j}$ the step length, and  $\theta_{n,t,j}$ the turning angle. The coefficient $\beta_{0,n,t}$ is the step-specific intercept of animal $n$ at time $t$, which is modelled as a random effect $\beta_{0,n,t} \sim \text{N}(0,1000000^2)$, while the coefficients $\beta_{1,n}$ is the coefficient associated with the habitat selection function and is modelled with a random effect for which we estimate the mean and standard deviation: $\beta_{1,n} \sim \text{N}(\beta_1, \sigma_1^2)$. The rest of the terms are associated with the movement kernel, where $\beta_2$, $\beta_{l}$, $\beta_{\ln}$, $\beta_{\theta}$, $\beta_{3}$, and $\beta_4$ are coefficients associated with the step lengths and turning angles. As explained in Avgar et al. (2016), the inclusion of the step length and its natural logarithm is a way to model the step length distribution as a Gamma distribution. Similarly, the inclusion of the cosine of the turning angle is a method to model the turning angle distribution as a Von Mises distribution. Here, $\beta_2$, $\beta_3$, and $\beta_4$ allow for the movement kernel, specifically the step length distribution, to vary as a function of distance to shore.
 
-```{r, message = FALSE}
+```{r, message = FALSE, warning=FALSE}
 ssf.noscars <- fit.poisson.rs(formula = case_num ~ -1 + 
                                 # Habitat selection function
                                 distShore.end +
@@ -347,7 +348,7 @@ $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_5 s_n d_{
 
 where $\beta_5$ represents the coefficient quantifying the relationship between the presence of scars and distance to shore.
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning=FALSE}
 ssf.sel.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
                                    # Habitat selection
                                    distShore.end + 
@@ -381,7 +382,7 @@ $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_{l} l_{n,
 
 where $\beta_6$ quantifies the relationship between the scars, step length, and distance to shore.
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning=FALSE}
 ssf.mov.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
                                    # Habitat selection
                                    distShore.end + 
@@ -412,7 +413,7 @@ $$\mu_{n,t,j} = \exp(\beta_{0,n,t} + \beta_{1,n} d_{n,t,j} +  \\ \beta_5 s_n d_{
 \beta_{\ln} \ln(l_{n,t,j}) + \beta_3 d_{n,t-1,j} \ln(l_{n,t,j}) +  \beta_4 d_{n,t-1,j}^2 \ln(l_{n,t,j}) + \\
 \beta_{\theta} \cos(\theta_{n,t,j})), \qquad y_{n,t,j} \sim \text{Poisson}(\mu_{n,t,j}).$$
 
-```{r, message = FALSE}
+```{r, message = FALSE, warning=FALSE}
 ssf.mov.sel.healed <- fit.poisson.rs(formula = case_num ~ -1 + 
                                        # Habitat selection
                                        distShore.end + distShore.end:Healed.Scars +
@@ -488,6 +489,7 @@ round(summary(ssf.noscars)$coef$cond["distShore.end", c("Estimate", "Std. Error"
 # With scar info in movement kernel
 round(summary(ssf.mov.healed)$coef$cond["distShore.end", c("Estimate", "Std. Error")], 3)
 ```
+
 A bit, but not much.
 
 # Interpreting the results
@@ -825,7 +827,7 @@ legend.plot.mov <- as_ggplot(get_legend(mov.plot("mov.sel.healed",
 
 ## Alternative figure with both movement and habitat selection
 
-```{r Fig_6_alternative_narwhal_res_, fig.height=6, fig.width=6, dev='png'}
+```{r Fig_6_alternative_narwhal_res, fig.height=6, fig.width=6, dev='png'}
 ggarrange(
   ggarrange(legend.plot.mov, legend.plot.map, nrow = 1, 
             widths = c(0.6, 0.4)),
@@ -1257,8 +1259,7 @@ sessionInfo()
 
 # Literature cited
 
-Avgar, T., Potts, J. R., Lewis, M. A. & Boyce, M. S. (2016). Integrated step selection494
-analysis: bridging the gap between resource selection and animal movement. Methods in Ecology and Evolution, 7, 619–630. https://doi.org/10.1111/2041-210X.12528
+Avgar, T., Potts, J. R., Lewis, M. A. & Boyce, M. S. (2016). Integrated step selection analysis: bridging the gap between resource selection and animal movement. Methods in Ecology and Evolution, 7, 619–630. https://doi.org/10.1111/2041-210X.12528
 
 
 Hawkes, C. (2009). Linking movement behaviour, dispersal and population processes: is individual variation a key? Journal of Animal Ecology, 78, 894-906. https://doi.org/10.1111/j.1365-2656.2009.01534.x
