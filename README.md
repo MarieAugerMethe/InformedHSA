@@ -2,7 +2,7 @@
 
 This repository contains the code and data associated with the article: 
 
-Auger-Méthé, M, F Dupont, A Eby, KH Elliott, N Hussey, DA Lyons, M Marcoux, A Patterson,
+Auger-Méthé, M, F Dupont, A Eby, KH Elliott, NE Hussey, DA Lyons, M Marcoux, A Patterson,
 S Shadloo, and CR Shuert (2025) Including fitness and health proxies can alter our
 understanding of habitat selection. Preprint available on bioRxiv.
 
